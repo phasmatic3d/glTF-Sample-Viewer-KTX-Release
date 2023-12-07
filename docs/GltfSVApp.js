@@ -4476,11 +4476,11 @@ class gltfRenderer
         {
             vertDefines.push("USE_SKINNING 1");
         }
-
         // morphing
-        if (parameters.morphing && node.mesh !== undefined && primitive.targets.length > 0)
+        const mesh_id = node.mesh !== undefined ? node.mesh : ( (node.compressedMesh !== undefined && node.compressedMesh.mesh !== undefined) ? node.compressedMesh.mesh : undefined );
+        if (parameters.morphing && mesh_id !== undefined && primitive.targets.length > 0)
         {
-            const mesh = gltf.meshes[node.mesh];
+            const mesh = gltf.meshes[mesh_id];
             if (mesh.getWeightsAnimated() !== undefined && mesh.getWeightsAnimated().length > 0)
             {
                 vertDefines.push("USE_MORPHING 1");
@@ -4491,9 +4491,11 @@ class gltfRenderer
 
     updateAnimationUniforms(state, node, primitive)
     {
-        if (state.renderingParameters.morphing && node.mesh !== undefined && primitive.targets.length > 0)
+
+        const mesh_id = node.mesh !== undefined ? node.mesh : ( (node.compressedMesh !== undefined && node.compressedMesh.mesh !== undefined) ? node.compressedMesh.mesh : undefined );
+        if (state.renderingParameters.morphing && mesh_id !== undefined && primitive.targets.length > 0)
         {
-            const mesh = state.gltf.meshes[node.mesh];
+            const mesh = state.gltf.meshes[mesh_id];
             const weightsAnimated = mesh.getWeightsAnimated();
             if (weightsAnimated !== undefined && weightsAnimated.length > 0)
             {
@@ -22594,13 +22596,13 @@ class gltfPrimitive extends GltfObject
 
     compressGeometryDRACO(options, gltf) {
         const encoderModule = gltf.dracoEncoder.module;
-        const decoderModule = gltf.dracoDecoder.module;
+        gltf.dracoDecoder.module;
         const indices = (this.indices !== undefined) ? gltf.accessors[this.indices].getTypedView(gltf) : null;
         const face_count = (this.indices !== undefined) ? indices.length / 3 : 0;
         const accessor = (this.indices !== undefined) ? gltf.accessors[this.indices] : 0;
         const mesh_builder = new encoderModule.MeshBuilder();
         const mesh = new encoderModule.Mesh();
-        const encoder = new encoderModule.Encoder();
+        const encoder = new encoderModule.ExpertEncoder(mesh);
         const draco_attributes = {};
         const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
 
@@ -22608,7 +22610,8 @@ class gltfPrimitive extends GltfObject
         for(var i = 0; i < indices.length; i++) {
             indices32[i] = indices[i];
         }
-
+        console.log('this', this);
+        
         if (face_count > 0) mesh_builder.AddFacesToMesh(mesh, face_count, indices32);
 
         const genericQuantizationBits = this.glAttributes.reduce(function (bitCount, glAttribute) {
@@ -22616,6 +22619,7 @@ class gltfPrimitive extends GltfObject
             return Math.min(bitCount, accessor.getComponentBitCount(accessor.componentType));
         }, options.genericQuantizationBits);
 
+        encoder.SetTrackEncodedProperties(true);
         encoder.SetAttributeQuantization(encoderModule.GENERIC, genericQuantizationBits);
         for (const glAttribute of this.glAttributes) {
             const accessor = gltf.accessors[glAttribute.accessor];
@@ -22641,38 +22645,32 @@ class gltfPrimitive extends GltfObject
             draco_attributes[attribute] = attribute_id;
 
             if (encoderModule.POSITION === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, clamp(options.positionCompressionQuantizationBits, 1, bitCount));
+                encoder.SetAttributeQuantization(attribute_id, clamp(options.positionCompressionQuantizationBits, 1, bitCount));
             else if (encoderModule.NORMAL === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, clamp(options.normalCompressionQuantizationBits, 1, bitCount));
+                encoder.SetAttributeQuantization(attribute_id, clamp(options.normalCompressionQuantizationBits, 1, bitCount));
             else if (encoderModule.COLOR === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, clamp(options.colorCompressionQuantizationBits, 1, bitCount));
+                encoder.SetAttributeQuantization(attribute_id, clamp(options.colorCompressionQuantizationBits, 1, bitCount));
             else if (encoderModule.TEX_COORD === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, clamp(options.texcoordCompressionQuantizationBits, 1, bitCount));
+                encoder.SetAttributeQuantization(attribute_id, clamp(options.texcoordCompressionQuantizationBits, 1, bitCount));
+            else
+                encoder.SetAttributeQuantization(attribute_id, genericQuantizationBits);
         }
         encoder.SetEncodingMethod(options.encodingMethod === "EDGEBREAKER" ? encoderModule.MESH_EDGEBREAKER_ENCODING : encoderModule.MESH_SEQUENTIAL_ENCODING);            
-
+        encoder.SetSpeedOptions(7, 7);            
+        
         const draco_array = new encoderModule.DracoInt8Array();
-        const draco_array_len = encoder.EncodeMeshToDracoBuffer(mesh, draco_array);
+        const draco_array_len = encoder.EncodeToDracoBuffer(false, draco_array);
         const compressed_buffer = new Uint8Array(draco_array_len);
         for (var i = 0; i < draco_array_len; i++) {
             compressed_buffer[i] = draco_array.GetValue(i);
         }
         
+        const draco_attr_count = encoder.GetNumberOfEncodedPoints();
+        const draco_face_count = encoder.GetNumberOfEncodedFaces();
+
         encoderModule.destroy(mesh);
         encoderModule.destroy(encoder);
         encoderModule.destroy(mesh_builder);
-
-        // Decode to get updated information on 'face_count' and 'attr_count'
-        const decoder = new decoderModule.Decoder();
-        const geometryType = decoder.GetEncodedGeometryType(compressed_buffer);
-        const outputGeometry = (geometryType == decoderModule.TRIANGULAR_MESH) ? new decoderModule.Mesh() : new decoderModule.PointCloud();
-        console.log('decoderModule', decoderModule);
-        console.log('geometryType', geometryType);
-        if (geometryType == decoderModule.TRIANGULAR_MESH) {
-            decoder.DecodeArrayToMesh(compressed_buffer, compressed_buffer.length, outputGeometry);
-        } else {
-            console.log('Handle Point Clouds');
-        }
 
         const buffer = new gltfBuffer();
         buffer.byteLength = compressed_buffer.byteLength;
@@ -22691,7 +22689,7 @@ class gltfPrimitive extends GltfObject
         const accessor_compressed = new gltfAccessor();
         accessor_compressed.bufferView = gltf.bufferViews.length - 1;
         accessor_compressed.byteOffset = 0;
-        accessor_compressed.count = outputGeometry.num_faces() * 3;
+        accessor_compressed.count = draco_face_count * 3;
         accessor_compressed.type = "SCALAR";
         accessor_compressed.componentType = accessor.componentType;
         gltf.accessors.push(accessor_compressed);
@@ -22711,7 +22709,7 @@ class gltfPrimitive extends GltfObject
             const accessor_compressed = new gltfAccessor();
             accessor_compressed.bufferView = accessor.bufferView;
             accessor_compressed.byteOffset = accessor.byteOffset;
-            accessor_compressed.count = outputGeometry.num_points();
+            accessor_compressed.count = draco_attr_count;
             accessor_compressed.type = accessor.type;
             accessor_compressed.componentType = accessor.componentType;
             gltf.accessors.push(accessor_compressed);
@@ -22719,9 +22717,6 @@ class gltfPrimitive extends GltfObject
             glAttribute.accessor = gltf.accessors.length - 1;
             this.attributes[attribute] = glAttribute.accessor;
         }
-
-        decoderModule.destroy(outputGeometry);
-        decoderModule.destroy(decoder);
 
         this.glAttributes = [];
         this.initGl(gltf, gltf.view.context);
@@ -24040,6 +24035,10 @@ class gltfAnimation extends GltfObject
             {
                 const mesh = gltf.meshes[node.mesh];
                 mesh.weightsAnimated = interpolator.interpolate(gltf, channel, sampler, totalTime, mesh.weights.length, this.maxTime);
+                if (!node.compressedNode) break;
+                const c_mesh = node.compressedNode.compressedMesh;
+                c_mesh.weightsAnimated = mesh.weightsAnimated;
+
                 break;
             }
             }
