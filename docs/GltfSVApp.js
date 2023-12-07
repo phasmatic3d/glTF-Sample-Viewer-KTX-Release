@@ -24038,8 +24038,7 @@ class gltfAnimation extends GltfObject
                 mesh.weightsAnimated = interpolator.interpolate(gltf, channel, sampler, totalTime, mesh.weights.length, this.maxTime);
                 if (!node.compressedNode) break;
                 const c_mesh = node.compressedNode.compressedMesh;
-                c_mesh.weightsAnimated = mesh.weightsAnimated;
-
+                c_mesh.weightsAnimated = mesh.weightsAnimated && mesh.weightsAnimated.map((e, i) => e / node.compressedNode.scale[i % 3]);
                 break;
             }
             }
