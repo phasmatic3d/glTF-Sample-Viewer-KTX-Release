@@ -16168,6 +16168,13 @@ td {
   white-space: nowrap;
 }
 
+.divDropButton {
+  width: 100%;
+  margin: 0;
+  display: block;
+  margin-bottom: 10px;
+}
+
 ul {
   padding-left: 1em;
 }
