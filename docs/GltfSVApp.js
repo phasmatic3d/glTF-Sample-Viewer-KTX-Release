@@ -29806,11 +29806,11 @@ class UIModel
                 this.app.enableMeshHighlighting = true;
                 this.app.isGeometryCompressed = data.isGeometryCompressed;
                 this.app.selectedCompressionGeometryType = "Draco";
-                this.app.selectedCompressionQuantizationPosition = "FLOAT";
-                this.app.selectedCompressionQuantizationNormal = "FLOAT";
-                this.app.selectedCompressionQuantizationTangent = "FLOAT";
-                this.app.selectedCompressionQuantizationTexCoords0 = "FLOAT";
-                this.app.selectedCompressionQuantizationTexCoords1 = "FLOAT";
+                this.app.selectedCompressionQuantizationPosition = "NONE";
+                this.app.selectedCompressionQuantizationNormal = "NONE";
+                this.app.selectedCompressionQuantizationTangent = "NONE";
+                this.app.selectedCompressionQuantizationTexCoords0 = "NONE";
+                this.app.selectedCompressionQuantizationTexCoords1 = "NONE";
 
                 this.app.selectedCompressionDracoEncodingMethod = "EDGEBREAKER";
                 this.app.compressionLevelDraco = 7;
@@ -58605,14 +58605,14 @@ const app = new Vue$2({
             compressionGeometryTypes: [{title: "Draco"}, {title: "MeshQuantization"}, {title: "MeshOpt"}, {title: "Uncompressed"}],
             compressionTextureType: [{title: "JPEG"}, {title: "PNG"}, {title: "WEBP"}, {title: "KTX2"}],
             compressionQuantizationPositionTypes: [{title: "NONE"}, {title: "FLOAT"}, {title: "SHORT"}, {title: "SHORT_NORMALIZED"}, {title: "UNSIGNED_SHORT"}, {title: "UNSIGNED_SHORT_NORMALIZED"}, {title: "BYTE"}, {title: "BYTE_NORMALIZED"}, {title: "UNSIGNED_BYTE"}, {title: "UNSIGNED_BYTE_NORMALIZED"}],
-            selectedCompressionQuantizationPosition: "FLOAT",
+            selectedCompressionQuantizationPosition: "NONE",
             compressionQuantizationNormalTypes: [{title: "NONE"}, {title: "FLOAT"}, {title: "SHORT_NORMALIZED"}, {title: "BYTE_NORMALIZED"}],
-            selectedCompressionQuantizationNormal: "FLOAT",
+            selectedCompressionQuantizationNormal: "NONE",
             compressionQuantizationTangentTypes: [{title: "NONE"}, {title: "FLOAT"}, {title: "SHORT_NORMALIZED"}, {title: "BYTE_NORMALIZED"}],
-            selectedCompressionQuantizationTangent: "FLOAT",
+            selectedCompressionQuantizationTangent: "NONE",
             compressionQuantizationTexCoordsTypes: [{title: "NONE"}, {title: "FLOAT"}, {title: "SHORT"}, {title: "SHORT_NORMALIZED"}, {title: "UNSIGNED_SHORT"}, {title: "BYTE"}, {title: "BYTE_NORMALIZED"}, {title: "UNSIGNED_BYTE"}],
-            selectedCompressionQuantizationTexCoords0: "FLOAT",
-            selectedCompressionQuantizationTexCoords1: "FLOAT",
+            selectedCompressionQuantizationTexCoords0: "NONE",
+            selectedCompressionQuantizationTexCoords1: "NONE",
 
             compressionDracoEncodingMethods: [{title: "EDGEBREAKER"}, {title: "SEQUENTIAL ENCODING"}],
             selectedCompressionDracoEncodingMethod: "EDGEBREAKER",
@@ -70216,11 +70216,11 @@ async function main() {
         state.compressorParameters.processedImages = [];
         state.compressorParameters.compressionGeometryType = "Draco";
         state.compressorParameters.processedMeshes = [];
-        state.compressorParameters.compressionQuantizationPositionType = "FLOAT";
-        state.compressorParameters.compressionQuantizationNormalType = "FLOAT";
-        state.compressorParameters.compressionQuantizationTangentType = "FLOAT";
-        state.compressorParameters.compressionQuantizationTexCoords0Type = "FLOAT";
-        state.compressorParameters.compressionQuantizationTexCoords1Type = "FLOAT";
+        state.compressorParameters.compressionQuantizationPositionType = "ΝΟΝΕ";
+        state.compressorParameters.compressionQuantizationNormalType = "ΝΟΝΕ";
+        state.compressorParameters.compressionQuantizationTangentType = "ΝΟΝΕ";
+        state.compressorParameters.compressionQuantizationTexCoords0Type = "ΝΟΝΕ";
+        state.compressorParameters.compressionQuantizationTexCoords1Type = "ΝΟΝΕ";
 
         state.compressorParameters.compressionDracoEncodingMethod = "EDGEBREAKER";
         state.compressorParameters.compressionLevelDraco = 7;
