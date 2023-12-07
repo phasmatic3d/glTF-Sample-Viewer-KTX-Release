@@ -73,7 +73,7 @@ function fromMat4(out, a) {
  * @returns {mat3} out
  */
 
-function multiply$1(out, a, b) {
+function multiply$2(out, a, b) {
   var a00 = a[0],
       a01 = a[1],
       a02 = a[2];
@@ -353,7 +353,7 @@ function determinant(a) {
  * @returns {mat4} out
  */
 
-function multiply(out, a, b) {
+function multiply$1(out, a, b) {
   var a00 = a[0],
       a01 = a[1],
       a02 = a[2],
@@ -810,7 +810,7 @@ function lookAt(out, eye, center, up) {
  * @function
  */
 
-var mul = multiply;
+var mul = multiply$1;
 
 /**
  * 3 Dimensional Vector
@@ -919,6 +919,21 @@ function subtract(out, a, b) {
   out[0] = a[0] - b[0];
   out[1] = a[1] - b[1];
   out[2] = a[2] - b[2];
+  return out;
+}
+/**
+ * Multiplies two vec3's
+ *
+ * @param {vec3} out the receiving vector
+ * @param {ReadonlyVec3} a the first operand
+ * @param {ReadonlyVec3} b the second operand
+ * @returns {vec3} out
+ */
+
+function multiply(out, a, b) {
+  out[0] = a[0] * b[0];
+  out[1] = a[1] * b[1];
+  out[2] = a[2] * b[2];
   return out;
 }
 /**
@@ -1875,7 +1890,7 @@ class gltfCamera extends GltfObject
         for (const drawable of drawables)
         {
             const modelView = create$4();
-            multiply(modelView, this.getViewMatrix(gltf), drawable.node.worldTransform);
+            multiply$1(modelView, this.getViewMatrix(gltf), drawable.node.worldTransform);
 
             // Transform primitive centroid to find the primitive's depth.
             const pos = transformMat4(create$3(), clone(drawable.primitive.centroid), modelView);
@@ -2265,7 +2280,7 @@ class UserCamera extends gltfCamera
         fromYRotation(mat4y, yaw);
         this.transform = mat4y;
         this.setPosition(tmpPos);
-        multiply(this.transform, this.transform, mat4x);
+        multiply$1(this.transform, this.transform, mat4x);
     }
 
     /**
@@ -4103,7 +4118,7 @@ class gltfRenderer
             this.visibleLights.push([null, this.lightFill]);
         }
 
-        multiply(this.viewProjectionMatrix, this.projMatrix, this.viewMatrix);
+        multiply$1(this.viewProjectionMatrix, this.projMatrix, this.viewMatrix);
 
         // Update skins.
         for (const node of this.nodes)
@@ -20555,8 +20570,8 @@ class gltfMaterial extends GltfObject
             }
 
             let uvMatrix = create$5();
-            multiply$1(uvMatrix, translation, rotation);
-            multiply$1(uvMatrix, uvMatrix, scale);
+            multiply$2(uvMatrix, translation, rotation);
+            multiply$2(uvMatrix, uvMatrix, scale);
 
             this.defines.push("HAS_" + textureKey.toUpperCase() + "_UV_TRANSFORM 1");
             this.properties.set("u_" + textureKey + "UVTransform", uvMatrix);
@@ -23614,6 +23629,21 @@ class gltfNode extends GltfObject
                     node.changed = true;
 
                     node.compressedMesh.compressGeometry(type, {...options, offset: translationToUnitLength, scale: scaleToUnitLength}, gltf);
+
+                    const {bboxMin: compressed_bboxMin, bboxMax: compressed_bboxMax} = node.compressedMesh.getAABB(gltf);
+                    node.compressedMesh.getTexcoordsAABB(gltf, "TEXCOORD_0");
+                    node.compressedMesh.getTexcoordsAABB(gltf, "TEXCOORD_1");
+
+                    let scaled_compressed_bbox_min = multiply(create$3(), compressed_bboxMin, fromValues$3(scaleToOriginal,scaleToOriginal,scaleToOriginal));
+                    scaled_compressed_bbox_min = add$2(create$3(), scaled_compressed_bbox_min, origin);
+                    let scaled_compressed_bbox_max = multiply(create$3(), compressed_bboxMax, fromValues$3(scaleToOriginal,scaleToOriginal,scaleToOriginal));
+                    scaled_compressed_bbox_max = add$2(create$3(), scaled_compressed_bbox_max, origin);
+
+                    this.bboxDiffError = {
+                        bboxMin: subtract(create$3(), bboxMin, scaled_compressed_bbox_min),
+                        bboxMax: subtract(create$3(), bboxMax, scaled_compressed_bbox_max)
+                    };       
+                    this.compressionError = "TBD%";
                 }
                 else
                 {                    
@@ -23623,6 +23653,15 @@ class gltfNode extends GltfObject
                     node.changed = true;
 
                     node.compressedMesh.compressGeometry(type, options, gltf);
+
+                    const {bboxMin, bboxMax} = gltf.meshes[this.mesh].getAABB(gltf);
+                    const {bboxMin: compressed_bboxMin, bboxMax: compressed_bboxMax} = node.compressedMesh.getAABB(gltf);
+
+                    this.bboxDiffError = {
+                        bboxMin: subtract(create$3(), bboxMin, compressed_bboxMin),
+                        bboxMax: subtract(create$3(), bboxMax, compressed_bboxMax)
+                    };       
+                    this.compressionError = "TBD%";
                 }                
             }
         }
@@ -23677,7 +23716,7 @@ class gltfScene extends GltfObject
     {
         function applyTransform(gltf, node, parentTransform)
         {
-            multiply(node.worldTransform, parentTransform, node.getLocalTransform());
+            multiply$1(node.worldTransform, parentTransform, node.getLocalTransform());
             invert(node.inverseWorldTransform, node.worldTransform);
             transpose(node.normalMatrix, node.inverseWorldTransform);
 
@@ -26803,10 +26842,23 @@ class GltfView
             }
                 
             if(isIncluded){
+                const bboxErrorMin = element.bboxDiffError && [
+                    Math.ceil(1000 * element.bboxDiffError.bboxMin[0]) / 1000,
+                    Math.ceil(1000 * element.bboxDiffError.bboxMin[1]) / 1000,
+                    Math.ceil(1000 * element.bboxDiffError.bboxMin[2]) / 1000,
+                ];
+                const bboxErrorMax = element.bboxDiffError && [
+                    Math.ceil(1000 * element.bboxDiffError.bboxMax[0]) / 1000,
+                    Math.ceil(1000 * element.bboxDiffError.bboxMax[1]) / 1000,
+                    Math.ceil(1000 * element.bboxDiffError.bboxMax[2]) / 1000,
+                ];
                 const mesh = {
                     index: element.mesh,
                     compressionFormatAfter: isIncluded ? state.gltf.meshes[element.mesh].compressionFormatAfter : "", 
                     diskSizeAfter: isIncluded ? state.gltf.meshes[element.mesh].diskSizeAfter.toFixed(2) + " mb" : "",  
+                    bboxErrorMin: bboxErrorMin? `${bboxErrorMin[0].toFixed(3)} ${bboxErrorMin[1].toFixed(3)} ${bboxErrorMin[2].toFixed(3)}` : "",
+                    bboxErrorMax: bboxErrorMax? `${bboxErrorMax[0].toFixed(3)} ${bboxErrorMax[1].toFixed(3)} ${bboxErrorMax[2].toFixed(3)}` : "",
+                    compressionError: element.compressionError? element.compressionError : ""
                 };
                 meshes.push(mesh);
             }
@@ -29894,6 +29946,9 @@ class UIModel
                     let table_row = document.getElementById('mesh_table_row_' + mesh.index);
                     table_row.rows[4].cells[2].innerHTML = mesh.compressionFormatAfter;
                     table_row.rows[5].cells[2].innerHTML = mesh.diskSizeAfter;
+                    table_row.rows[7].cells[2].innerHTML = mesh.bboxErrorMin;
+                    table_row.rows[8].cells[2].innerHTML = mesh.bboxErrorMax;
+                    table_row.rows[9].cells[2].innerHTML = mesh.compressionError;
                 });
 
                 this.app.geometryStatistics = data.geometryData;
@@ -58455,6 +58510,42 @@ Vue$2.component("tree-view-node", {
                     cell1.innerHTML  = "DiskSize";
                     cell2.innerHTML = item.diskSizeBefore;
                     cell3.innerHTML = item.diskSizeAfter;
+
+                    // Insert row
+                    rows.push(newTable.insertRow(-1));
+                    cell1 = rows[rows.length-1].insertCell(0);
+                    cell2 = rows[rows.length-1].insertCell(1);
+                    cell3 = rows[rows.length-1].insertCell(2);
+                    cell1.innerHTML  = "GPUSize";
+                    cell2.innerHTML = item.gpuSizeBefore;
+                    cell3.innerHTML = item.gpuSizeAfter;
+
+                    // Insert row
+                    rows.push(newTable.insertRow(-1));
+                    cell1 = rows[rows.length-1].insertCell(0);
+                    cell2 = rows[rows.length-1].insertCell(1);
+                    cell3 = rows[rows.length-1].insertCell(2);
+                    cell1.innerHTML  = "BboxChangeMin";
+                    cell2.innerHTML = "";
+                    cell3.innerHTML = "";
+
+                    // Insert row
+                    rows.push(newTable.insertRow(-1));
+                    cell1 = rows[rows.length-1].insertCell(0);
+                    cell2 = rows[rows.length-1].insertCell(1);
+                    cell3 = rows[rows.length-1].insertCell(2);
+                    cell1.innerHTML  = "BboxChangeMax";
+                    cell2.innerHTML = "";
+                    cell3.innerHTML = "";
+
+                    // Insert row
+                    rows.push(newTable.insertRow(-1));
+                    cell1 = rows[rows.length-1].insertCell(0);
+                    cell2 = rows[rows.length-1].insertCell(1);
+                    cell3 = rows[rows.length-1].insertCell(2);
+                    cell1.innerHTML  = "CompressionError";
+                    cell2.innerHTML = "";
+                    cell3.innerHTML = "";
 
                     const table = document.getElementById('geometry_table');
                     table.appendChild(newTable);
