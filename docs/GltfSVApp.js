@@ -2564,11 +2564,11 @@ class GltfState
             compressionETC1S_NoSelectorRdo: false,
 
             /** Set the compression quality Mesh Quantization */
-            compressionQuantizationPositionType: "FLOAT",
-            compressionQuantizationNormalType: "FLOAT",
-            compressionQuantizationTangentType: "FLOAT",
-            compressionQuantizationTexCoords0Type: "FLOAT",
-            compressionQuantizationTexCoords1Type: "FLOAT",
+            compressionQuantizationPositionType: "NONE",
+            compressionQuantizationNormalType: "NONE",
+            compressionQuantizationTangentType: "NONE",
+            compressionQuantizationTexCoords0Type: "NONE",
+            compressionQuantizationTexCoords1Type: "NONE",
 
             /** Set the compression quality Mesh Draco */
             compressionDracoEncodingMethod: "EDGEBREAKER",
@@ -21617,6 +21617,9 @@ function isComponentDataTypeUnsigned(type) {
 function getComponentDataTypeSize(type) {
     return type == GL.FLOAT? 4 : type == GL.SHORT || type == GL.UNSIGNED_SHORT? 2 : 1;
 }
+function getComponentDataTypeDistinctIntegerNumbers(type) {
+    return type == GL.SHORT || type == GL.UNSIGNED_SHORT? 65535 : type == GL.BYTE || type == GL.UNSIGNED_BYTE? 255 : 1;
+}
 
 function fillQuantizedBufferNormalized(inputFloatArray, outputBuffer, componentType, numberOfComponents, count, stride)
 {
@@ -21809,14 +21812,14 @@ class gltfPrimitive extends GltfObject
             }
         }
 
-        if (this.attributes.TANGENT === undefined)
+        /*if (this.attributes.TANGENT === undefined)
         {
             console.info("Generating tangents using the MikkTSpace algorithm.");
             console.time("Tangent generation");
             //this.unweld(gltf);
             //this.generateTangents(gltf);
             console.timeEnd("Tangent generation");
-        }
+        }*/
 
         // VERTEX ATTRIBUTES
         for (const attribute of Object.keys(this.attributes))
@@ -23520,8 +23523,9 @@ class gltfNode extends GltfObject
                 const {bboxMin: texcoord0bboxMin, bboxMax: texcoord0bboxMax, hasTexcoord: texcoord0HasTexcoord} = gltf.meshes[this.mesh].getTexcoordsAABB(gltf, "TEXCOORD_0");
                 const {bboxMin: texcoord1bboxMin, bboxMax: texcoord1bboxMax, hasTexcoord: texcoord1HasTexcoord} = gltf.meshes[this.mesh].getTexcoordsAABB(gltf, "TEXCOORD_1");
 
-                if(options.texcoord0Compression !== 0 && texcoord0HasTexcoord)
+                if(options.texcoord0Compression !== 0 && options.texcoord0Compression !== ComponentDataType.FLOAT && texcoord0HasTexcoord)
                 {
+                    const maxComponentDataRange = options.texcoord0CompressionNormalized? 1 : getComponentDataTypeDistinctIntegerNumbers(options.texcoord0Compression);
                     const scaleMultiplier = isComponentDataTypeUnsigned(options.texcoord0Compression)? 1.0 : 0.5;
                     const center = fromValues(
                         0.5 * (texcoord0bboxMin[0] + texcoord0bboxMax[0]),
@@ -23530,13 +23534,14 @@ class gltfNode extends GltfObject
                     
                     options.texcoord0CompressionOffset = negate(create$3(), isComponentDataTypeUnsigned(options.texcoord0Compression)? texcoord0bboxMin : center);
                     // Scale uniformly similar to positions
-                    options.texcoord0CompressionScale = 1.0 / Math.max(
+                    options.texcoord0CompressionScale = maxComponentDataRange / Math.max(
                         scaleMultiplier * (texcoord0bboxMax[0] - texcoord0bboxMin[0]),
                         scaleMultiplier * (texcoord0bboxMax[1] - texcoord0bboxMin[1]),
                     );
                 }
-                if(options.texcoord1Compression !== 0 && texcoord1HasTexcoord)
+                if(options.texcoord1Compression !== 0 && options.texcoord1Compression !== ComponentDataType.FLOAT && texcoord1HasTexcoord)
                 {
+                    const maxComponentDataRange = options.texcoord1CompressionNormalized? 1 : getComponentDataTypeDistinctIntegerNumbers(options.texcoord1Compression);
                     const scaleMultiplier = isComponentDataTypeUnsigned(options.texcoord1Compression)? 1.0 : 0.5;
                     const center = fromValues(
                         0.5 * (texcoord1bboxMin[0] + texcoord1bboxMax[0]),
@@ -23544,7 +23549,7 @@ class gltfNode extends GltfObject
                     );
                     
                     options.texcoord1CompressionOffset = negate(create$3(), isComponentDataTypeUnsigned(options.texcoord1Compression)? texcoord1bboxMin : center);
-                    options.texcoord1CompressionScale = 1.0 / Math.max(
+                    options.texcoord1CompressionScale = maxComponentDataRange / Math.max(
                         scaleMultiplier * (texcoord1bboxMax[0] - texcoord1bboxMin[0]),
                         scaleMultiplier * (texcoord1bboxMax[1] - texcoord1bboxMin[1]),
                     );
