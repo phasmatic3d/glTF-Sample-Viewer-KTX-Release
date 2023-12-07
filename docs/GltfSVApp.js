@@ -7203,6 +7203,24 @@ class gltfAccessor extends GltfObject
                 this.count;
     }
 
+    getComponentBitCount(componentType)
+    {
+        switch (componentType)
+        {
+        case GL.BYTE:
+        case GL.UNSIGNED_BYTE:
+            return 8;
+        case GL.SHORT:
+        case GL.UNSIGNED_SHORT:
+            return 16;
+        case GL.UNSIGNED_INT:
+        case GL.FLOAT:
+            return 32;
+        default:
+            return 0;
+        }
+    }
+
     getComponentCount(type)
     {
         return CompononentCount.get(type);
@@ -22581,6 +22599,7 @@ class gltfPrimitive extends GltfObject
         const mesh = new encoderModule.Mesh();
         const encoder = new encoderModule.Encoder();
         const draco_attributes = {};
+        const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
 
         const indices32 = new Uint32Array(indices.length);
         for(var i = 0; i < indices.length; i++) {
@@ -22588,6 +22607,13 @@ class gltfPrimitive extends GltfObject
         }
 
         if (face_count > 0) mesh_builder.AddFacesToMesh(mesh, face_count, indices32);
+
+        const genericQuantizationBits = this.glAttributes.reduce(function (bitCount, glAttribute) {
+            const accessor = gltf.accessors[glAttribute.accessor];
+            return Math.min(bitCount, accessor.getComponentBitCount(accessor.componentType));
+        }, options.genericQuantizationBits);
+
+        encoder.SetAttributeQuantization(encoderModule.GENERIC, genericQuantizationBits);
         for (const glAttribute of this.glAttributes) {
             const accessor = gltf.accessors[glAttribute.accessor];
             const attribute = glAttribute.attribute;
@@ -22595,6 +22621,7 @@ class gltfPrimitive extends GltfObject
             const compType = accessor.componentType;
             const compCount = accessor.getComponentCount(accessor.type);
             const compSize = accessor.getComponentSize(accessor.componentType);
+            const bitCount = accessor.getComponentBitCount(accessor.componentType);
             const byteStride = compSize * compCount;
             const attr_count = data.byteLength / byteStride;
             const attribute_type = gltf.dracoEncoder.getAttributeType(attribute);
@@ -22611,15 +22638,13 @@ class gltfPrimitive extends GltfObject
             draco_attributes[attribute] = attribute_id;
 
             if (encoderModule.POSITION === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, options.positionCompressionQuantizationBits);
+                encoder.SetAttributeQuantization(attribute_type, clamp(options.positionCompressionQuantizationBits, 1, bitCount));
             else if (encoderModule.NORMAL === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, options.normalCompressionQuantizationBits);
+                encoder.SetAttributeQuantization(attribute_type, clamp(options.normalCompressionQuantizationBits, 1, bitCount));
             else if (encoderModule.COLOR === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, options.colorCompressionQuantizationBits);
+                encoder.SetAttributeQuantization(attribute_type, clamp(options.colorCompressionQuantizationBits, 1, bitCount));
             else if (encoderModule.TEX_COORD === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, options.texcoordCompressionQuantizationBits);
-            else //if (encoderModule.GENERIC === attribute_type)
-                encoder.SetAttributeQuantization(attribute_type, options.genericQuantizationBits);
+                encoder.SetAttributeQuantization(attribute_type, clamp(options.texcoordCompressionQuantizationBits, 1, bitCount));
         }
         encoder.SetEncodingMethod(options.encodingMethod === "EDGEBREAKER" ? encoderModule.MESH_EDGEBREAKER_ENCODING : encoderModule.MESH_SEQUENTIAL_ENCODING);            
 
@@ -22638,6 +22663,8 @@ class gltfPrimitive extends GltfObject
         const decoder = new decoderModule.Decoder();
         const geometryType = decoder.GetEncodedGeometryType(compressed_buffer);
         const outputGeometry = (geometryType == decoderModule.TRIANGULAR_MESH) ? new decoderModule.Mesh() : new decoderModule.PointCloud();
+        console.log('decoderModule', decoderModule);
+        console.log('geometryType', geometryType);
         if (geometryType == decoderModule.TRIANGULAR_MESH) {
             decoder.DecodeArrayToMesh(compressed_buffer, compressed_buffer.length, outputGeometry);
         } else {
