@@ -23508,11 +23508,38 @@ class gltfNode extends GltfObject
     compressGeometry(type, options, gltf)
     {
         //debugger;
-        // if the node has a mesh that we can compress
+        // if the node has a mesh that we can compress. If compressedMesh exists, then we are in a compressedHelperNode
         if(this.mesh != undefined && this.compressedMesh == undefined)
         {
+            const currentMesh = gltf.meshes[this.mesh];
             // first check if we have not already compressed this mesh
             if(this.compressedNode === undefined)
+            {
+                // create a compression node
+                const node = new gltfNode();
+                this.compressedNode = node;
+                node.isCompressedHelperNode = true;
+
+                // add as a children
+                this.children.push(gltf.nodes.length);
+                // add to the global pool of nodes
+                gltf.nodes.push(node);
+
+                // create a new compressed mesh 
+                node.compressedMesh = new gltfMesh();
+                node.compressedMesh.copyFromMesh(currentMesh);
+                node.compressedMesh.isCompressed = true;
+                node.compressedMesh.mesh = gltf.meshes.length;
+                node.compressedMesh.original_mesh = this.mesh;
+                node.skin = this.skin;
+                node.weights = this.weights;
+                
+                gltf.meshes.push(node.compressedMesh);
+            }
+            const node = this.compressedNode;
+            node.compressedMesh.copyFromMesh(currentMesh);
+
+
             {
                 const {bboxMin, bboxMax} = gltf.meshes[this.mesh].getAABB(gltf);
                 const {bboxMin: texcoord0bboxMin, bboxMax: texcoord0bboxMax, hasTexcoord: texcoord0HasTexcoord} = gltf.meshes[this.mesh].getTexcoordsAABB(gltf, "TEXCOORD_0");
@@ -23549,16 +23576,6 @@ class gltfNode extends GltfObject
                         scaleMultiplier * (texcoord1bboxMax[1] - texcoord1bboxMin[1]),
                     );
                 }
-                
-                // create a compression node
-                const node = new gltfNode();
-                this.compressedNode = node;
-                node.isCompressedHelperNode = true;
-
-                // add as a children
-                this.children.push(gltf.nodes.length);
-                // add to the global pool of nodes
-                gltf.nodes.push(node);
 
                 if(options.positionCompressionNormalized && options.positionCompression !== 0)
                 {
@@ -23596,32 +23613,16 @@ class gltfNode extends GltfObject
                     node.scale = fromValues$3(scaleToOriginal, scaleToOriginal, scaleToOriginal);
                     node.changed = true;
 
-                    // create a new compressed mesh 
-                    const currentMesh = gltf.meshes[this.mesh];
-                    node.compressedMesh = new gltfMesh();
-                    node.compressedMesh.copyFromMesh(currentMesh);
-                    node.compressedMesh.isCompressed = true;
-                    node.compressedMesh.mesh = gltf.meshes.length;
-                    node.compressedMesh.original_mesh = this.mesh;
-                    
                     node.compressedMesh.compressGeometry(type, {...options, offset: translationToUnitLength, scale: scaleToUnitLength}, gltf);
-
-                    gltf.meshes.push(node.compressedMesh);
                 }
                 else
-                {
-                    // create a new compressed mesh 
-                    const currentMesh = gltf.meshes[this.mesh];
-                    node.compressedMesh = new gltfMesh();
-                    node.compressedMesh.copyFromMesh(currentMesh);
-                    node.compressedMesh.isCompressed = true;
-                    node.compressedMesh.mesh = gltf.meshes.length;
-                    node.compressedMesh.original_mesh = this.mesh;
-                    node.skin = this.skin;
-                    node.weights = this.weights;
-                    
+                {                    
+                    // TRS matrix order
+                    node.translation = create$3();
+                    node.scale = fromValues$3(1,1,1);
+                    node.changed = true;
+
                     node.compressedMesh.compressGeometry(type, options, gltf);
-                    gltf.meshes.push(node.compressedMesh);
                 }                
             }
         }
@@ -69623,6 +69624,7 @@ async function main() {
             }
             console.log(compress_options);
 
+            state.gltf.compressionVersion++;
             // Compress all selected nodes
             const meshNodeMap = new Map();
             state.compressorParameters.selectedMeshes.forEach(i => {meshNodeMap.set(state.gltf.nodes[i].mesh, i);}); 
@@ -70220,11 +70222,11 @@ async function main() {
         state.compressorParameters.processedImages = [];
         state.compressorParameters.compressionGeometryType = "Draco";
         state.compressorParameters.processedMeshes = [];
-        state.compressorParameters.compressionQuantizationPositionType = "ΝΟΝΕ";
-        state.compressorParameters.compressionQuantizationNormalType = "ΝΟΝΕ";
-        state.compressorParameters.compressionQuantizationTangentType = "ΝΟΝΕ";
-        state.compressorParameters.compressionQuantizationTexCoords0Type = "ΝΟΝΕ";
-        state.compressorParameters.compressionQuantizationTexCoords1Type = "ΝΟΝΕ";
+        state.compressorParameters.compressionQuantizationPositionType = "NONE";
+        state.compressorParameters.compressionQuantizationNormalType = "NONE";
+        state.compressorParameters.compressionQuantizationTangentType = "NONE";
+        state.compressorParameters.compressionQuantizationTexCoords0Type = "NONE";
+        state.compressorParameters.compressionQuantizationTexCoords1Type = "NONE";
 
         state.compressorParameters.compressionDracoEncodingMethod = "EDGEBREAKER";
         state.compressorParameters.compressionLevelDraco = 7;
