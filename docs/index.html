@@ -667,36 +667,60 @@
                                                 </b-select>
                                             </b-field>
                                         </div>
+                                        <b-field label="Filter Quantization Bits" class="smallerLabel">
+                                            <b-slider rounded v-model="compressionMeshOptFilterQuantizationBits" :min="4" v-bind:max="32" :step=4
+                                                class="iblIntensitySlider" v-stream:input="compressionMeshOptFilterQuantizationBitsChanged$">
+                                                <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
+                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                            </b-slider>
+                                        </b-field>
+                                        <b-field label="POSITION Attribute Type" class="smallerLabel">
+                                            <b-select v-stream:input="compressionMOptQuantizationPositionChanged$"
+                                                v-model="compressionMOptQuantizationPosition">
+                                                <option v-for="(item) in compressionQuantizationPositionTypes" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+
+                                        <b-field label="NORMAL Attribute Type" class="smallerLabel">
+                                            <b-select v-stream:input="compressionMOptQuantizationNormalChanged$"
+                                                v-model="compressionMOptQuantizationNormal">
+                                                <option v-for="(item) in compressionQuantizationNormalTypes" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+
+                                        <b-field label="TANGENT Attribute Type" class="smallerLabel">
+                                            <b-select v-stream:input="compressionMOptQuantizationTangentChanged$"
+                                                v-model="compressionMOptQuantizationTangent">
+                                                <option v-for="(item) in compressionQuantizationTangentTypes" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+
+                                        <b-field label="TEXCOORD 0 Attribute Type" class="smallerLabel">
+                                            <b-select v-stream:input="compressionMOptQuantizationTexCoords0Changed$"
+                                                v-model="compressionMOptQuantizationTexCoords0">
+                                                <option v-for="(item) in compressionQuantizationTexCoordsTypes" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+
+                                        <b-field label="TEXCOORD 1 Attribute Type" class="smallerLabel">
+                                            <b-select v-stream:input="compressionMOptQuantizationTexCoords1Changed$"
+                                                v-model="compressionMOptQuantizationTexCoords1">
+                                                <option v-for="(item) in compressionQuantizationTexCoordsTypes" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
                                         <b-switch v-model="selectedCompressionMeshOptReorder" v-stream:input="compressionMeshOptReorderChanged$">Reorder 
                                         </b-switch>
-                                        <b-field label="POSITION Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionMeshOptQuantizationPositionQuantBits" :min="4" v-bind:max="32" :step=4
-                                                class="iblIntensitySlider" v-stream:input="compressionMeshOptQuantizationPositionQuantBitsChanged$">
-                                                <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
-                                            </b-slider>
-                                        </b-field>
-                                        <b-field label="NORMAL Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionMeshOptQuantizationNormalQuantBits" :min="4" v-bind:max="32" :step=4
-                                                class="iblIntensitySlider" v-stream:input="compressionMeshOptQuantizationNormalQuantBitsChanged$">
-                                                <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
-                                            </b-slider>
-                                        </b-field>
-                                        <b-field label="COLOR Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionMeshOptQuantizationColorQuantBits" :min="4" v-bind:max="32" :step=4
-                                                class="iblIntensitySlider" v-stream:input="compressionMeshOptQuantizationColorQuantBitsChanged$">
-                                                <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
-                                            </b-slider>
-                                        </b-field>
-                                        <b-field label="TEXCOORD Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionMeshOptQuantizationTexcoordQuantBits" :min="4" v-bind:max="32" :step=4
-                                                class="iblIntensitySlider" v-stream:input="compressionMeshOptQuantizationTexcoordQuantBitsChanged$">
-                                                <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
-                                            </b-slider>
-                                        </b-field>
+                                        
                                     </div>
                                 </div>  
                             </div>

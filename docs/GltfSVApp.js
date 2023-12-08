@@ -29459,12 +29459,14 @@ class UIModel
 
         this.compressionMeshOptFilterMethod = app.compressionMeshOptFilterMethodSelectionChanged$.pipe(pluck("event", "msg"));
         this.compressionMeshOptFilterMode = app.compressionMeshOptFilterModeSelectionChanged$.pipe(pluck("event", "msg"));
+        this.compressionMeshOptFilterQuantizationBits = app.compressionMeshOptFilterQuantizationBitsChanged$.pipe(pluck("event", "msg"));
         this.compressionMeshOptReorder = app.compressionMeshOptReorderChanged$.pipe(pluck("event", "msg"));
         
-        this.compressionMeshOptQuantizationPositionQuantBits = app.compressionMeshOptQuantizationPositionQuantBitsChanged$.pipe(pluck("event", "msg"));
-        this.compressionMeshOptQuantizationNormalQuantBits = app.compressionMeshOptQuantizationNormalQuantBitsChanged$.pipe(pluck("event", "msg"));
-        this.compressionMeshOptQuantizationColorQuantBits = app.compressionMeshOptQuantizationColorQuantBitsChanged$.pipe(pluck("event", "msg"));
-        this.compressionMeshOptQuantizationTexcoordQuantBits = app.compressionMeshOptQuantizationTexcoordQuantBitsChanged$.pipe(pluck("event", "msg"));
+        this.compressionMOptQuantizationPosition = app.compressionMOptQuantizationPositionChanged$.pipe(pluck("event", "msg"));
+        this.compressionMOptQuantizationNormal = app.compressionMOptQuantizationNormalChanged$.pipe(pluck("event", "msg"));
+        this.compressionMOptQuantizationTangent = app.compressionMOptQuantizationTangentChanged$.pipe(pluck("event", "msg"));
+        this.compressionMOptQuantizationTexCoords0 = app.compressionMOptQuantizationTexCoords0Changed$.pipe(pluck("event", "msg"));
+        this.compressionMOptQuantizationTexCoords1 = app.compressionMOptQuantizationTexCoords1Changed$.pipe(pluck("event", "msg"));
 
         // KTX
         this.compressionTextureEncoding = app.compressionTextureEncodingSelectionChanged$.pipe(pluck("event", "msg"));
@@ -29879,11 +29881,13 @@ class UIModel
     
                 this.app.selectedCompressionMeshOptFilterMethod = "NONE";
                 this.app.selectedCompressionMeshOptFilterMode = "Separate";
+                this.app.compressionMeshOptFilterQuantizationBits = 16;
                 this.app.selectedCompressionMeshOptReorder = false;
-                this.app.compressionMeshOptQuantizationPositionQuantBits = 16;
-                this.app.compressionMeshOptQuantizationNormalQuantBits = 8;
-                this.app.compressionMeshOptQuantizationColorQuantBits = 16;
-                this.app.compressionMeshOptQuantizationTexcoordQuantBits = 12;
+                this.app.compressionMOptQuantizationPosition = "NONE";
+                this.app.compressionMOptQuantizationNormal = "NONE";
+                this.app.compressionMOptQuantizationTangent = "NONE";
+                this.app.compressionMOptQuantizationTexCoords0 = "NONE";
+                this.app.compressionMOptQuantizationTexCoords1 = "NONE";
             }
         );
     }
@@ -58639,8 +58643,9 @@ const app = new Vue$2({
         'addEnvironment$', 'colorChanged$', 'environmentRotationChanged$', 'animationPlayChanged$', 'selectedAnimationsChanged$',
         'variantChanged$', 'exposureChanged$', "clearcoatChanged$", "sheenChanged$", "transmissionChanged$",
         'cameraExport$', 'captureCanvas$','iblIntensityChanged$', 'comparisonViewChanged$', 'compressionDracoEncodingMethodSelectionChanged$',
-        'compressionMeshOptFilterMethodSelectionChanged$', 'compressionMeshOptFilterModeSelectionChanged$',
-        'compressionMeshOptQuantizationPositionQuantBitsChanged$', 'compressionMeshOptQuantizationNormalQuantBitsChanged$',
+        'compressionMOptQuantizationPositionChanged$', 'compressionMOptQuantizationNormalChanged$', 'compressionMOptQuantizationTangentChanged$',
+        'compressionMOptQuantizationTexCoords0Changed$', 'compressionMOptQuantizationTexCoords1Changed$', 
+        'compressionMeshOptFilterMethodSelectionChanged$', 'compressionMeshOptFilterModeSelectionChanged$', 'compressionMeshOptFilterQuantizationBitsChanged$',
         'compressionMeshOptQuantizationColorQuantBitsChanged$', 'compressionMeshOptQuantizationTexcoordQuantBitsChanged$', 'compressionMeshOptReorderChanged$',
         'compressionSpeedDracoChanged$', 'decompressionSpeedDracoChanged$', 'compressionDracoQuantizationPositionQuantBitsChanged$', 'compressionDracoQuantizationNormalQuantBitsChanged$',
         'compressionDracoQuantizationColorQuantBitsChanged$', 'compressionDracoQuantizationTexcoordQuantBitsChanged$', 'compressionDracoQuantizationGenericQuantBitsChanged$',
@@ -58730,11 +58735,13 @@ const app = new Vue$2({
             selectedCompressionMeshOptFilterMethod: "NONE",
             compressionMeshOptFilterModes: [{title: "Separate"}, {title: "SharedVector"}, {title: "SharedComponent"}],
             selectedCompressionMeshOptFilterMode: "Separate",
+            compressionMeshOptFilterQuantizationBits: 16,
             selectedCompressionMeshOptReorder: false,
-            compressionMeshOptQuantizationPositionQuantBits: 16,
-            compressionMeshOptQuantizationNormalQuantBits: 8,
-            compressionMeshOptQuantizationColorQuantBits: 16,
-            compressionMeshOptQuantizationTexcoordQuantBits: 12,
+            compressionMOptQuantizationPosition: "NONE",
+            compressionMOptQuantizationTangent: "NONE",
+            compressionMOptQuantizationNormal: "NONE",
+            compressionMOptQuantizationTexCoords0: "NONE",
+            compressionMOptQuantizationTexCoords1: "NONE",
 
             compressionTextureEncoding: [{title: "UASTC"}, {title: "ETC1S"}],
             compressionTextureResolution: [{title: "1x"}, {title: "2x"}, {title: "4x"}, {title: "8x"}, {title: "16x"}, {title: "32x"}],
@@ -69540,24 +69547,32 @@ async function main() {
         state.compressorParameters.compressionMeshOptFilterMode = compressionMeshOptFilterMode;
     });
 
+    uiModel.compressionMeshOptFilterQuantizationBits.subscribe( compressionMeshOptFilterQuantizationBits => {
+        state.compressorParameters.compressionMeshOptFilterQuantizationBits = compressionMeshOptFilterQuantizationBits;
+    });
+
     uiModel.compressionMeshOptReorder.subscribe( compressionMeshOptReorder => {
         state.compressorParameters.compressionMeshOptReorder = compressionMeshOptReorder;
     });
 
-    uiModel.compressionMeshOptQuantizationPositionQuantBits.subscribe( compressionMeshOptQuantizationPositionQuantBits => {
-        state.compressorParameters.compressionMeshOptQuantizationPositionQuantBits = compressionMeshOptQuantizationPositionQuantBits;
+    uiModel.compressionMOptQuantizationPosition.subscribe( compressionMOptQuantizationPosition => {
+        state.compressorParameters.compressionMOptQuantizationPosition = compressionMOptQuantizationPosition;
     });
 
-    uiModel.compressionMeshOptQuantizationNormalQuantBits.subscribe( compressionMeshOptQuantizationNormalQuantBits => {
-        state.compressorParameters.compressionMeshOptQuantizationNormalQuantBits = compressionMeshOptQuantizationNormalQuantBits;
+    uiModel.compressionMOptQuantizationNormal.subscribe( compressionMOptQuantizationNormal => {
+        state.compressorParameters.compressionMOptQuantizationNormal = compressionMOptQuantizationNormal;
     });
 
-    uiModel.compressionMeshOptQuantizationColorQuantBits.subscribe( compressionMeshOptQuantizationColorQuantBits => {
-        state.compressorParameters.compressionMeshOptQuantizationColorQuantBits = compressionMeshOptQuantizationColorQuantBits;
+    uiModel.compressionMOptQuantizationTangent.subscribe( compressionMOptQuantizationTangent => {
+        state.compressorParameters.compressionMOptQuantizationTangent = compressionMOptQuantizationTangent;
     });
 
-    uiModel.compressionMeshOptQuantizationTexcoordQuantBits.subscribe( compressionMeshOptQuantizationTexcoordQuantBits => {
-        state.compressorParameters.compressionMeshOptQuantizationTexcoordQuantBits = compressionMeshOptQuantizationTexcoordQuantBits;
+    uiModel.compressionMOptQuantizationTexCoords0.subscribe( compressionMOptQuantizationTexCoords0 => {
+        state.compressorParameters.compressionMOptQuantizationTexCoords0 = compressionMOptQuantizationTexCoords0;
+    });
+
+    uiModel.compressionMOptQuantizationTexCoords1.subscribe( compressionMOptQuantizationTexCoords1 => {
+        state.compressorParameters.compressionMOptQuantizationTexCoords1 = compressionMOptQuantizationTexCoords1;
     });
 
     uiModel.compressionTextureEncoding.subscribe( compressionTextureEncoding => {
@@ -70357,11 +70372,13 @@ async function main() {
 
         state.compressorParameters.compressionMeshOptFilterMethod = "NONE";
         state.compressorParameters.compressionMeshOptFilterMode = "Separate";
+        state.compressorParameters.compressionMeshOptFilterQuantizationBits = 16;
         state.compressorParameters.compressionMeshOptReorder = false;
-        state.compressorParameters.compressionMeshOptQuantizationPositionQuantBits = 16;
-        state.compressorParameters.compressionMeshOptQuantizationNormalQuantBits = 8;
-        state.compressorParameters.compressionMeshOptQuantizationColorQuantBits = 16;
-        state.compressorParameters.compressionMeshOptQuantizationTexcoordQuantBits = 12;
+        state.compressorParameters.compressionMOptQuantizationPosition = "NONE";
+        state.compressorParameters.compressionMOptQuantizationNormal = "NONE";
+        state.compressorParameters.compressionMOptQuantizationTangent = "NONE";
+        state.compressorParameters.compressionMOptQuantizationTexCoords0 = "NONE";
+        state.compressorParameters.compressionMOptQuantizationTexCoords1 = "NONE";
     });
 
     // End GSV-KTX
