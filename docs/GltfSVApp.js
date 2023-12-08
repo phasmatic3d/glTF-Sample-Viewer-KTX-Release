@@ -22611,7 +22611,6 @@ class gltfPrimitive extends GltfObject
 
     compressGeometryDRACO(options, gltf) {
         const encoderModule = gltf.dracoEncoder.module;
-        gltf.dracoDecoder.module;
         const indices = (this.indices !== undefined) ? gltf.accessors[this.indices].getTypedView(gltf) : null;
         const face_count = (this.indices !== undefined) ? indices.length / 3 : 0;
         const accessor = (this.indices !== undefined) ? gltf.accessors[this.indices] : 0;
@@ -22619,23 +22618,15 @@ class gltfPrimitive extends GltfObject
         const mesh = new encoderModule.Mesh();
         const encoder = new encoderModule.ExpertEncoder(mesh);
         const draco_attributes = {};
-        const clamp = (x, min, max) => Math.max(min, Math.min(max, x));
 
         const indices32 = new Uint32Array(indices.length);
         for(var i = 0; i < indices.length; i++) {
             indices32[i] = indices[i];
         }
-        console.log('this', this);
-        
+
         if (face_count > 0) mesh_builder.AddFacesToMesh(mesh, face_count, indices32);
 
-        const genericQuantizationBits = this.glAttributes.reduce(function (bitCount, glAttribute) {
-            const accessor = gltf.accessors[glAttribute.accessor];
-            return Math.min(bitCount, accessor.getComponentBitCount(accessor.componentType));
-        }, options.genericQuantizationBits);
-
         encoder.SetTrackEncodedProperties(true);
-        encoder.SetAttributeQuantization(encoderModule.GENERIC, genericQuantizationBits);
         for (const glAttribute of this.glAttributes) {
             const accessor = gltf.accessors[glAttribute.accessor];
             const attribute = glAttribute.attribute;
@@ -22643,7 +22634,7 @@ class gltfPrimitive extends GltfObject
             const compType = accessor.componentType;
             const compCount = accessor.getComponentCount(accessor.type);
             const compSize = accessor.getComponentSize(accessor.componentType);
-            const bitCount = accessor.getComponentBitCount(accessor.componentType);
+            accessor.getComponentBitCount(accessor.componentType);
             const byteStride = compSize * compCount;
             const attr_count = data.byteLength / byteStride;
             const attribute_type = gltf.dracoEncoder.getAttributeType(attribute);
@@ -22659,16 +22650,20 @@ class gltfPrimitive extends GltfObject
             const attribute_id = AddAttributeTable[compType](mesh_builder, mesh, attribute_type, attr_count, compCount, data);
             draco_attributes[attribute] = attribute_id;
 
-            if (encoderModule.POSITION === attribute_type)
-                encoder.SetAttributeQuantization(attribute_id, clamp(options.positionCompressionQuantizationBits, 1, bitCount));
-            else if (encoderModule.NORMAL === attribute_type)
-                encoder.SetAttributeQuantization(attribute_id, clamp(options.normalCompressionQuantizationBits, 1, bitCount));
-            else if (encoderModule.COLOR === attribute_type)
-                encoder.SetAttributeQuantization(attribute_id, clamp(options.colorCompressionQuantizationBits, 1, bitCount));
-            else if (encoderModule.TEX_COORD === attribute_type)
-                encoder.SetAttributeQuantization(attribute_id, clamp(options.texcoordCompressionQuantizationBits, 1, bitCount));
+            if ("POSITION" === attribute)
+                encoder.SetAttributeQuantization(attribute_id, options.positionCompressionQuantizationBits);
+            else if ("NORMAL" === attribute)
+                encoder.SetAttributeQuantization(attribute_id, options.normalCompressionQuantizationBits);
+            else if ("COLOR" === attribute)
+                encoder.SetAttributeQuantization(attribute_id, options.colorCompressionQuantizationBits);
+            else if ("WEIGHTS_0" === attribute || "WEIGHTS_1" === attribute )
+                encoder.SetAttributeQuantization(attribute_id, options.weightQuantizationBits);
+            else if ("TEX_COORD_0" === attribute || "TEX_COORD_1" === attribute )
+                encoder.SetAttributeQuantization(attribute_id, options.texcoordCompressionQuantizationBits);
+            else if ("JOINTS_0" === attribute || "JOINTS_1" === attribute )
+                encoder.SetAttributeQuantization(attribute_id, options.jointQuantizationBits);
             else
-                encoder.SetAttributeQuantization(attribute_id, genericQuantizationBits);
+                encoder.SetAttributeQuantization(attribute_id, options.genericQuantizationBits);
         }
         encoder.SetEncodingMethod(options.encodingMethod === "EDGEBREAKER" ? encoderModule.MESH_EDGEBREAKER_ENCODING : encoderModule.MESH_SEQUENTIAL_ENCODING);            
         encoder.SetSpeedOptions(7, 7);            
@@ -22733,6 +22728,7 @@ class gltfPrimitive extends GltfObject
             this.attributes[attribute] = glAttribute.accessor;
         }
 
+        this.defines = [];
         this.glAttributes = [];
         this.initGl(gltf, gltf.view.context);
     }
@@ -29450,12 +29446,16 @@ class UIModel
         this.compressionQuantizationTexCoords1Type = app.compressionQuantizationTexCoords1TypeSelectionChanged$.pipe(pluck("event", "msg"));
 
         this.compressionDracoEncodingMethod = app.compressionDracoEncodingMethodSelectionChanged$.pipe(pluck("event", "msg"));
-        this.compressionLevelDraco = app.compressionLevelDracoChanged$.pipe(pluck("event", "msg"));
+        this.compressionSpeedDraco = app.compressionSpeedDracoChanged$.pipe(pluck("event", "msg"));
+        this.decompressionSpeedDraco = app.decompressionSpeedDracoChanged$.pipe(pluck("event", "msg"));
         this.compressionDracoQuantizationPositionQuantBits = app.compressionDracoQuantizationPositionQuantBitsChanged$.pipe(pluck("event", "msg"));
         this.compressionDracoQuantizationNormalQuantBits = app.compressionDracoQuantizationNormalQuantBitsChanged$.pipe(pluck("event", "msg"));
         this.compressionDracoQuantizationColorQuantBits = app.compressionDracoQuantizationColorQuantBitsChanged$.pipe(pluck("event", "msg"));
         this.compressionDracoQuantizationTexcoordQuantBits = app.compressionDracoQuantizationTexcoordQuantBitsChanged$.pipe(pluck("event", "msg"));
         this.compressionDracoQuantizationGenericQuantBits = app.compressionDracoQuantizationGenericQuantBitsChanged$.pipe(pluck("event", "msg"));
+        this.compressionDracoQuantizationTangentQuantBits = app.compressionDracoQuantizationTangentQuantBitsChanged$.pipe(pluck("event", "msg"));
+        this.compressionDracoQuantizationWeightQuantBits = app.compressionDracoQuantizationWeightQuantBitsChanged$.pipe(pluck("event", "msg"));
+        this.compressionDracoQuantizationJointQuantBits = app.compressionDracoQuantizationJointQuantBitsChanged$.pipe(pluck("event", "msg"));
 
         this.compressionMeshOptFilterMethod = app.compressionMeshOptFilterMethodSelectionChanged$.pipe(pluck("event", "msg"));
         this.compressionMeshOptFilterMode = app.compressionMeshOptFilterModeSelectionChanged$.pipe(pluck("event", "msg"));
@@ -29869,12 +29869,13 @@ class UIModel
                 this.app.selectedCompressionQuantizationTexCoords1 = "NONE";
 
                 this.app.selectedCompressionDracoEncodingMethod = "EDGEBREAKER";
-                this.app.compressionLevelDraco = 7;
+                this.app.compressionSpeedDraco = 7;
+                this.app.decompressionSpeedDraco = 7;
                 this.app.compressionDracoQuantizationPositionQuantBits = 16;
                 this.app.compressionDracoQuantizationNormalQuantBits = 10;
                 this.app.compressionDracoQuantizationColorQuantBits = 16;
                 this.app.compressionDracoQuantizationTexcoordQuantBits = 11;
-                this.app.compressionDracoQuantizationGenericQuantBits = 32;
+                this.app.compressionDracoQuantizationGenericQuantBits = 16;
     
                 this.app.selectedCompressionMeshOptFilterMethod = "NONE";
                 this.app.selectedCompressionMeshOptFilterMode = "Separate";
@@ -58641,8 +58642,11 @@ const app = new Vue$2({
         'compressionMeshOptFilterMethodSelectionChanged$', 'compressionMeshOptFilterModeSelectionChanged$',
         'compressionMeshOptQuantizationPositionQuantBitsChanged$', 'compressionMeshOptQuantizationNormalQuantBitsChanged$',
         'compressionMeshOptQuantizationColorQuantBitsChanged$', 'compressionMeshOptQuantizationTexcoordQuantBitsChanged$', 'compressionMeshOptReorderChanged$',
-        'compressionLevelDracoChanged$', 'compressionDracoQuantizationPositionQuantBitsChanged$', 'compressionDracoQuantizationNormalQuantBitsChanged$',
+        'compressionSpeedDracoChanged$', 'decompressionSpeedDracoChanged$', 'compressionDracoQuantizationPositionQuantBitsChanged$', 'compressionDracoQuantizationNormalQuantBitsChanged$',
         'compressionDracoQuantizationColorQuantBitsChanged$', 'compressionDracoQuantizationTexcoordQuantBitsChanged$', 'compressionDracoQuantizationGenericQuantBitsChanged$',
+        'compressionDracoQuantizationTangentQuantBitsChanged$',
+        'compressionDracoQuantizationWeightQuantBitsChanged$',
+        'compressionDracoQuantizationJointQuantBitsChanged$',
         'compressionQuantizationPositionTypeSelectionChanged$', 'compressionQuantizationNormalTypeSelectionChanged$', 'compressionQuantizationTangentTypeSelectionChanged$',
         'compressionQuantizationTexCoords0TypeSelectionChanged$', 'compressionQuantizationTexCoords1TypeSelectionChanged$',
         'texturesSelectionChanged$', 'compressionTextureSelectionChanged$', 'compressionUASTC_Rdo_AlgorithmSelectionChanged$', 
@@ -58711,12 +58715,16 @@ const app = new Vue$2({
 
             compressionDracoEncodingMethods: [{title: "EDGEBREAKER"}, {title: "SEQUENTIAL ENCODING"}],
             selectedCompressionDracoEncodingMethod: "EDGEBREAKER",
-            compressionLevelDraco: 7,
+            compressionSpeedDraco: 7,
+            decompressionSpeedDraco: 7,
             compressionDracoQuantizationPositionQuantBits: 16,
             compressionDracoQuantizationNormalQuantBits: 10,
             compressionDracoQuantizationColorQuantBits: 16,
             compressionDracoQuantizationTexcoordQuantBits: 11,
-            compressionDracoQuantizationGenericQuantBits: 32,
+            compressionDracoQuantizationGenericQuantBits: 16,
+            compressionDracoQuantizationTangentQuantBits: 16,
+            compressionDracoQuantizationWeightQuantBits: 16,
+            compressionDracoQuantizationJointQuantBits: 16,
 
             compressionMeshOptFilterMethods: [{title: "NONE"}, {title: "OCTAHEDRAL"}, {title: "QUATERNION"}, {title: "EXPONENTIAL"}],
             selectedCompressionMeshOptFilterMethod: "NONE",
@@ -69484,8 +69492,12 @@ async function main() {
         state.compressorParameters.compressionDracoEncodingMethod = compressionDracoEncodingMethod;
     });
 
-    uiModel.compressionLevelDraco.subscribe( compressionLevelDraco => {
-        state.compressorParameters.compressionLevelDraco = compressionLevelDraco;
+    uiModel.compressionSpeedDraco.subscribe( compressionSpeedDraco => {
+        state.compressorParameters.compressionSpeedDraco = compressionSpeedDraco;
+    });
+
+    uiModel.decompressionSpeedDraco.subscribe( decompressionSpeedDraco => {
+        state.compressorParameters.decompressionSpeedDraco = decompressionSpeedDraco;
     });
 
     uiModel.compressionDracoQuantizationPositionQuantBits.subscribe( compressionDracoQuantizationPositionQuantBits => {
@@ -69506,6 +69518,18 @@ async function main() {
 
     uiModel.compressionDracoQuantizationGenericQuantBits.subscribe( compressionDracoQuantizationGenericQuantBits => {
         state.compressorParameters.compressionDracoQuantizationGenericQuantBits = compressionDracoQuantizationGenericQuantBits;
+    });
+
+    uiModel.compressionDracoQuantizationTangentQuantBits.subscribe( compressionDracoQuantizationTangentQuantBits => {
+        state.compressorParameters.compressionDracoQuantizationTangentQuantBits = compressionDracoQuantizationTangentQuantBits;
+    });
+
+    uiModel.compressionDracoQuantizationWeightQuantBits.subscribe( compressionDracoQuantizationWeightQuantBits => {
+        state.compressorParameters.compressionDracoQuantizationWeightQuantBits = compressionDracoQuantizationWeightQuantBits;
+    });
+
+    uiModel.compressionDracoQuantizationJointQuantBits.subscribe( compressionDracoQuantizationJointQuantBits => {
+        state.compressorParameters.compressionDracoQuantizationJointQuantBits = compressionDracoQuantizationJointQuantBits;
     });
 
     uiModel.compressionMeshOptFilterMethod.subscribe( compressionMeshOptFilterMethod => {
@@ -69694,12 +69718,16 @@ async function main() {
             else if(type === GEOMETRY_COMPRESSION_TYPE.DRACO){
                 compress_options = new GeometryDracoOptions();
                 compress_options.encodingMethod = state.compressorParameters.compressionDracoEncodingMethod; 
-                compress_options.compressionLevel = state.compressorParameters.compressionLevelDraco;
+                compress_options.compressionSpeed = state.compressorParameters.compressionSpeedDraco;
+                compress_options.decompressionSpeed = state.compressorParameters.decompressionSpeedDraco;
                 compress_options.positionCompressionQuantizationBits = state.compressorParameters.compressionDracoQuantizationPositionQuantBits;
                 compress_options.normalCompressionQuantizationBits = state.compressorParameters.compressionDracoQuantizationNormalQuantBits;
                 compress_options.colorCompressionQuantizationBits = state.compressorParameters.compressionDracoQuantizationColorQuantBits;
                 compress_options.texcoordCompressionQuantizationBits = state.compressorParameters.compressionDracoQuantizationTexcoordQuantBits;
                 compress_options.genericQuantizationBits = state.compressorParameters.compressionDracoQuantizationGenericQuantBits;
+                compress_options.tangentQuantizationBits = state.compressorParameters.compressionDracoQuantizationTangentQuantBits;
+                compress_options.weightQuantizationBits = state.compressorParameters.compressionDracoQuantizationWeightQuantBits;
+                compress_options.jointQuantizationBits = state.compressorParameters.compressionDracoQuantizationJointQuantBits;
             }
             else //if(type === GEOMETRY_COMPRESSION_TYPE.MESHOPT)
             {
@@ -70319,12 +70347,13 @@ async function main() {
         state.compressorParameters.compressionQuantizationTexCoords1Type = "NONE";
 
         state.compressorParameters.compressionDracoEncodingMethod = "EDGEBREAKER";
-        state.compressorParameters.compressionLevelDraco = 7;
+        state.compressorParameters.compressionSpeedDraco = 7;
+        state.compressorParameters.decompressionSpeedDraco = 7;
         state.compressorParameters.compressionDracoQuantizationPositionQuantBits = 16;
         state.compressorParameters.compressionDracoQuantizationNormalQuantBits = 10;
         state.compressorParameters.compressionDracoQuantizationColorQuantBits = 16;
         state.compressorParameters.compressionDracoQuantizationTexcoordQuantBits = 11;
-        state.compressorParameters.compressionDracoQuantizationGenericQuantBits = 32;
+        state.compressorParameters.compressionDracoQuantizationGenericQuantBits = 16;
 
         state.compressorParameters.compressionMeshOptFilterMethod = "NONE";
         state.compressorParameters.compressionMeshOptFilterMode = "Separate";

@@ -538,46 +538,67 @@
                                                 </option>
                                             </b-select>
                                         </b-field>
-                                        <b-field label="Compression Level" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionLevelDraco" :min="0" v-bind:max="10" :step=1
-                                                class="iblIntensitySlider" v-stream:input="compressionLevelDracoChanged$">
+                                        <b-field label="Compression Speed" class="smallerLabel">
+                                            <b-slider rounded v-model="compressionSpeedDraco" :min="0" v-bind:max="10" :step=1
+                                                class="iblIntensitySlider" v-stream:input="compressionSpeedDracoChanged$">
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="10" class="iblIntensitySliderMarker">10</b-slider-tick>
+                                            </b-slider>
+                                        </b-field>
+                                        <b-field label="Decompression Speed" class="smallerLabel">
+                                            <b-slider rounded v-model="decompressionSpeedDraco" :min="0" v-bind:max="10" :step=1
+                                                class="iblIntensitySlider" v-stream:input="decompressionSpeedDracoChanged$">
                                                 <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
                                                 <b-slider-tick :value="10" class="iblIntensitySliderMarker">10</b-slider-tick>
                                             </b-slider>
                                         </b-field>
                                         <b-field label="POSITION Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionDracoQuantizationPositionQuantBits" :min="1" v-bind:max="32" :step=1
+                                            <b-slider rounded v-model="compressionDracoQuantizationPositionQuantBits" :min="0" v-bind:max="30" :step=1
                                                 class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationPositionQuantBitsChanged$">
-                                                <b-slider-tick :value="1" class="iblIntensitySliderMarker">1</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
                                             </b-slider>
                                         </b-field>
                                         <b-field label="NORMAL Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionDracoQuantizationNormalQuantBits" :min="1" v-bind:max="32" :step=1
+                                            <b-slider rounded v-model="compressionDracoQuantizationNormalQuantBits" :min="0" v-bind:max="30" :step=1
                                                 class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationNormalQuantBitsChanged$">
-                                                <b-slider-tick :value="1" class="iblIntensitySliderMarker">1</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
                                             </b-slider>
                                         </b-field>
                                         <b-field label="COLOR Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionDracoQuantizationColorQuantBits" :min="1" v-bind:max="32" :step=1
+                                            <b-slider rounded v-model="compressionDracoQuantizationColorQuantBits" :min="0" v-bind:max="30" :step=1
                                                 class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationColorQuantBitsChanged$">
-                                                <b-slider-tick :value="1" class="iblIntensitySliderMarker">1</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
                                             </b-slider>
                                         </b-field>
                                         <b-field label="TEXCOORD Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionDracoQuantizationTexcoordQuantBits" :min="1" v-bind:max="32" :step=1
+                                            <b-slider rounded v-model="compressionDracoQuantizationTexcoordQuantBits" :min="0" v-bind:max="30" :step=1
                                                 class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationTexcoordQuantBitsChanged$">
-                                                <b-slider-tick :value="1" class="iblIntensitySliderMarker">1</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
                                             </b-slider>
                                         </b-field>
-                                        <b-field label="GENERIC Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionDracoQuantizationGenericQuantBits" :min="1" v-bind:max="32" :step=1
-                                                class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationGenericQuantBitsChanged$">
-                                                <b-slider-tick :value="1" class="iblIntensitySliderMarker">1</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                        <b-field label="TANGENT Quantization Bits" class="smallerLabel">
+                                            <b-slider rounded v-model="compressionDracoQuantizationTangentQuantBits" :min="0" v-bind:max="30" :step=1
+                                                class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationTangentQuantBitsChanged$">
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
+                                            </b-slider>
+                                        </b-field>
+                                        <b-field label="WEIGHTS Quantization Bits" class="smallerLabel">
+                                            <b-slider rounded v-model="compressionDracoQuantizationWeightQuantBits" :min="0" v-bind:max="30" :step=1
+                                                class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationWeightQuantBitsChanged$">
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
+                                            </b-slider>
+                                        </b-field>
+                                        <b-field label="JOINTS Quantization Bits" class="smallerLabel">
+                                            <b-slider rounded v-model="compressionDracoQuantizationJointQuantBits" :min="0" v-bind:max="30" :step=1
+                                                class="iblIntensitySlider" v-stream:input="compressionDracoQuantizationJointQuantBitsChanged$">
+                                                <b-slider-tick :value="0" class="iblIntensitySliderMarker">0</b-slider-tick>
+                                                <b-slider-tick :value="30" class="iblIntensitySliderMarker">30</b-slider-tick>
                                             </b-slider>
                                         </b-field>
                                     </div>
