@@ -7490,7 +7490,7 @@ class ImageUtils
         const texture_dst = gl.createTexture();
         const vao = gl.createVertexArray();
         
-        console.log(gl.getError());
+        while(gl.getError());
         gl.bindTexture(gl.TEXTURE_2D, texture_dst);
         gl.texStorage2D(gl.TEXTURE_2D, 1, isSRGB? gl.SRGB8_ALPHA8 : gl.RGBA8, width, height); 
         
@@ -22666,7 +22666,7 @@ class gltfPrimitive extends GltfObject
                 encoder.SetAttributeQuantization(attribute_id, options.genericQuantizationBits);
         }
         encoder.SetEncodingMethod(options.encodingMethod === "EDGEBREAKER" ? encoderModule.MESH_EDGEBREAKER_ENCODING : encoderModule.MESH_SEQUENTIAL_ENCODING);            
-        encoder.SetSpeedOptions(7, 7);            
+        encoder.SetSpeedOptions(options.compressionSpeedDraco, options.decompressionSpeedDraco);            
         
         const draco_array = new encoderModule.DracoInt8Array();
         const draco_array_len = encoder.EncodeToDracoBuffer(false, draco_array);
@@ -22737,6 +22737,7 @@ class gltfPrimitive extends GltfObject
         const should_reorder = options.reorder;
         const filterMethod = options.filterMethod;
         const filterMode = options.filterMode;
+        const filterBits = options.filterQuantizationBits;
         const moptDecoder = gltf.moptDecoder;
         const moptEncoder = gltf.moptEncoder;
         const moptFilters = {
@@ -22839,7 +22840,7 @@ class gltfPrimitive extends GltfObject
                 break;
             }
             
-            var filterBits = 4;
+            /*var filterBits = 4;
             if (attribute === "POSITION")
                 filterBits = options.positionCompressionQuantizationBits;
             else if (attribute === "NORMAL")
@@ -22847,7 +22848,7 @@ class gltfPrimitive extends GltfObject
             else if (attribute === "COLOR")
                 filterBits = options.colorCompressionQuantizationBits;
             else if (attribute === "TEXCOORD_0" || attribute === "TEXCOORD_1")
-                filterBits = options.texcoordCompressionQuantizationBits;
+                filterBits = options.texcoordCompressionQuantizationBits;*/
             const reordered_filtered_data = moptFilters[filterMethod](reordered_data, attr_count, byteStride, filterBits, filterMode);
             data_encoded = moptEncoder.encodeGltfBuffer(reordered_filtered_data, attr_count, byteStride, 'ATTRIBUTES');
             const bytes = (view) => new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
@@ -26078,7 +26079,8 @@ class ResourceLoader
 
         //Make sure draco decoder instance is ready
         gltf.fromJson(json);
-
+        console.log('json', json);
+        console.log('gltf', gltf);
         // because the gltf image paths are not relative
         // to the gltf, we have to resolve all image paths before that
         for (const image of gltf.images)
@@ -26088,7 +26090,7 @@ class ResourceLoader
 
         await init(await mikktspace());
         await gltfLoader.load(gltf, this.view.context, buffers);
-        gltf.og_gltf = { buffers: [...gltf.buffers], accessors: [...gltf.accessors], bufferViews: [...gltf.bufferViews] };
+        gltf.og_gltf = { buffers: [...gltf.buffers], accessors: [...gltf.accessors], bufferViews: [...gltf.bufferViews], images: [...gltf.images]  };
 
         return gltf;
     }
@@ -69749,13 +69751,14 @@ async function main() {
                 compress_options = new GeometryMeshOptOptions();
                 compress_options.filterMethod = state.compressorParameters.compressionMeshOptFilterMethod;
                 compress_options.filterMode = state.compressorParameters.compressionMeshOptFilterMode; 
+                compress_options.filterQuantizationBits = state.compressorParameters.compressionMeshOptFilterQuantizationBits;
                 compress_options.reorder = state.compressorParameters.compressionMeshOptReorder;
                 compress_options.positionCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationPositionQuantBits;
                 compress_options.normalCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationNormalQuantBits;
                 compress_options.colorCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationColorQuantBits;
                 compress_options.texcoordCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationTexcoordQuantBits;
             }
-            console.log(compress_options);
+            console.log('compress_options', compress_options);
 
             state.gltf.compressionVersion++;
             // Compress all selected nodes
@@ -69993,7 +69996,8 @@ async function main() {
         };
 
         const containing_folder = getContainingFolder(gltf.path);
-        gltf.images.forEach((image) => {
+        gltf.images.filter(img => img.mimeType !== ImageMimeType.GLTEXTURE).forEach((image) => {
+            
             const image_new = {};
             if (image.uri !== undefined) {
 
@@ -70176,6 +70180,84 @@ async function main() {
                 }
             });
         });
+
+        if (gltfJSONNew.animations) {
+            const animBufferViews = [];
+            gltfJSONNew.animations.forEach((animation) => {
+                animation.samplers.forEach((sampler) => {
+                    const i_accessor = gltf.accessors[sampler.input];
+                    const i_bufferView = gltf.bufferViews[i_accessor.bufferView];
+                    const o_accessor = gltf.accessors[sampler.output];
+                    const o_bufferView = gltf.bufferViews[o_accessor.bufferView];
+                    
+                    animBufferViews[i_accessor.bufferView] = i_bufferView;
+                    animBufferViews[o_accessor.bufferView] = o_bufferView;
+                    animBufferViews[i_accessor.bufferView].accessors = [];
+                    animBufferViews[o_accessor.bufferView].accessors = [];
+                });
+            });
+
+            gltfJSONNew.animations.forEach((animation) => {
+                animation.samplers.forEach((sampler) => {
+                    const i_accessor = gltf.accessors[sampler.input];
+                    const o_accessor = gltf.accessors[sampler.output];
+                    
+                    animBufferViews[i_accessor.bufferView].accessors.push(gltfJSONNew.accessors[sampler.input]);
+                    animBufferViews[o_accessor.bufferView].accessors.push(gltfJSONNew.accessors[sampler.output]);
+                });
+            });
+            animBufferViews.forEach((bufferView) => {
+                const buffer = gltf.buffers[bufferView.buffer];
+                const mem_buffer = mem_buffers[bufferView.buffer];
+                const out_bufferView = {
+                    buffer: bufferView.buffer,
+                    byteOffset: mem_buffer.byteLength,
+                    byteLength: bufferView.byteLength,
+                    target: bufferView.target
+                };
+                bufferView.accessors.forEach((accessor) => {
+                    accessor.bufferView = bufferViews.length;
+                });
+                    
+                bufferViews.push(out_bufferView);
+                mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(bufferView.byteOffset, bufferView.byteOffset + bufferView.byteLength));
+                mem_buffer.byteLength = mem_buffer.data.byteLength;
+            });
+        }
+
+        if (gltfJSONNew.skins) {
+            const skinBufferViews = [];
+            
+            gltfJSONNew.skins.forEach((skin) => {
+                if (!skin.inverseBindMatrices) return;
+                const accessor = gltf.accessors[skin.inverseBindMatrices];
+                const bufferView = gltf.bufferViews[accessor.bufferView];
+                skinBufferViews[accessor.bufferView] = bufferView;
+                skinBufferViews[accessor.bufferView].accessors = [];
+            });
+            gltfJSONNew.skins.forEach((skin) => {
+                if (!skin.inverseBindMatrices) return;
+                const accessor = gltf.accessors[skin.inverseBindMatrices];
+                skinBufferViews[accessor.bufferView].accessors.push(gltfJSONNew.accessors[skin.inverseBindMatrices]);
+            });
+            skinBufferViews.forEach((bufferView) => {
+                const buffer = gltf.buffers[bufferView.buffer];
+                const mem_buffer = mem_buffers[bufferView.buffer];
+                const out_bufferView = {
+                    buffer: bufferView.buffer,
+                    byteOffset: mem_buffer.byteLength,
+                    byteLength: bufferView.byteLength,
+                    target: bufferView.target
+                };
+                bufferView.accessors.forEach((accessor) => {
+                    accessor.bufferView = bufferViews.length;
+                });
+                    
+                bufferViews.push(out_bufferView);
+                mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(bufferView.byteOffset, bufferView.byteOffset + bufferView.byteLength));
+                mem_buffer.byteLength = mem_buffer.data.byteLength;
+            });
+        }
 
         mem_buffers.forEach((buffer) => {
             gltfJSONNew.buffers.push({uri: buffer.uri, byteLength: buffer.data.byteLength, name: buffer.name});
