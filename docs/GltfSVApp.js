@@ -6866,44 +6866,25 @@ class gltfAccessor extends GltfObject
     decodeMeshoptBuffer(gltf, bufferView)
     {
         const moptDecoder = gltf.moptDecoder;
-        const bufferView_mopt = bufferView.extensions.EXT_meshopt_compression;
-        const filter = bufferView_mopt.filter || 'NONE';
-        const buffer = gltf.buffers[bufferView_mopt.buffer];
-        const byteOffset = this.byteOffset + bufferView_mopt.byteOffset;
-        const byteLength = bufferView_mopt.byteLength;
-        const byteStride = bufferView_mopt.byteStride;
-        this.getComponentSize(this.componentType);
-        const componentCount = this.getComponentCount(this.type);
-        const arrayLength = bufferView_mopt.count * componentCount;
+        const filter = bufferView.filter || 'NONE';
+        const buffer = gltf.buffers[bufferView.buffer];
+        const byteLength = bufferView.byteLength;
+        const byteStride = bufferView.byteStride;
+        const componentSize = this.getComponentSize(this.componentType);
+        //const componentCount = this.getComponentCount(this.type);
+        const componentCount = byteStride / componentSize;
+        const viewArrayLength = bufferView.count * componentCount * componentSize;
+        this.count * componentCount * componentSize;
         const bytes = (view) => new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
 
-        const encoded = new Uint8Array(buffer.buffer, byteOffset, byteLength);
-        let decoded = null;
-        switch (this.componentType)
-        {
-        case GL.BYTE:
-            decoded = new Int8Array(arrayLength);
-            break;
-        case GL.UNSIGNED_BYTE:
-            decoded = new Uint8Array(arrayLength);
-            break;
-        case GL.SHORT:
-            decoded = new Int16Array(arrayLength);
-            break;
-        case GL.UNSIGNED_SHORT:
-            decoded = new Uint16Array(arrayLength);
-            break;
-        case GL.UNSIGNED_INT:
-            decoded = new Uint32Array(arrayLength);
-            break;
-        case GL.FLOAT:
-            decoded = new Float32Array(arrayLength);
-            break;
-        }
+        const encoded = new Uint8Array(buffer.buffer, bufferView.byteOffset, byteLength);
+        const decoded = new Uint8Array(viewArrayLength);
 
-        moptDecoder.decodeGltfBuffer(bytes(decoded), bufferView_mopt.count, byteStride, encoded, bufferView_mopt.mode, filter);
 
-        return decoded;
+        moptDecoder.decodeGltfBuffer(bytes(decoded), bufferView.count, byteStride, encoded, bufferView.mode, filter);
+        console.log('decoded', decoded);
+        console.log('encoded', encoded);
+        return {buffer: decoded.buffer};
     }
 
     // getTypedView provides a view to the accessors data in form of
@@ -6917,14 +6898,10 @@ class gltfAccessor extends GltfObject
 
         if (this.bufferView !== undefined)
         {
-            const bufferView = gltf.bufferViews[this.bufferView];
-            if (bufferView.extensions !== undefined &&
-                bufferView.extensions.EXT_meshopt_compression !== undefined) {
-                this.typedView = this.decodeMeshoptBuffer(gltf, bufferView);
-                return this.typedView;
-            }
-            const buffer = gltf.buffers[bufferView.buffer];
-            const byteOffset = this.byteOffset + bufferView.byteOffset;
+            const isMeshOptCompressed = gltf.bufferViews[this.bufferView].extensions !== undefined && gltf.bufferViews[this.bufferView].extensions.EXT_meshopt_compression !== undefined;
+            const bufferView = (!isMeshOptCompressed) ? gltf.bufferViews[this.bufferView] : gltf.bufferViews[this.bufferView].extensions.EXT_meshopt_compression;
+            const buffer = (!isMeshOptCompressed) ? gltf.buffers[bufferView.buffer] : this.decodeMeshoptBuffer(gltf, bufferView);
+            const byteOffset = this.byteOffset + ((!isMeshOptCompressed) ? bufferView.byteOffset : 0);
             const componentSize = this.getComponentSize(this.componentType);
             let componentCount = this.getComponentCount(this.type);
 
@@ -7014,16 +6991,10 @@ class gltfAccessor extends GltfObject
 
         if (this.bufferView !== undefined)
         {
-            const bufferView = gltf.bufferViews[this.bufferView];
-            if (bufferView.extensions !== undefined &&
-                bufferView.extensions.EXT_meshopt_compression !== undefined) {
-                
-                this.typedView = this.decodeMeshoptBuffer(gltf, bufferView);
-                return this.typedView;
-            }
-            const buffer = gltf.buffers[bufferView.buffer];
-            const byteOffset = this.byteOffset + bufferView.byteOffset;
-
+            const isMeshOptCompressed = gltf.bufferViews[this.bufferView].extensions !== undefined && gltf.bufferViews[this.bufferView].extensions.EXT_meshopt_compression !== undefined;
+            const bufferView = (!isMeshOptCompressed) ? gltf.bufferViews[this.bufferView] : gltf.bufferViews[this.bufferView].extensions.EXT_meshopt_compression;
+            const buffer = (!isMeshOptCompressed) ? gltf.buffers[bufferView.buffer] : this.decodeMeshoptBuffer(gltf, bufferView);
+            const byteOffset = this.byteOffset + ((!isMeshOptCompressed) ? bufferView.byteOffset : 0);
             const componentSize = this.getComponentSize(this.componentType);
             const componentCount = this.getComponentCount(this.type);
             const arrayLength = this.count * componentCount;
@@ -69970,7 +69941,7 @@ async function main() {
         const uri_images = [];
 
         og_gltf.buffers.forEach((buffer) => {
-            mem_buffers.push({...buffer, byteLength: 0, data: new Uint8Array(), embedded: (buffer.uri || "").startsWith("data:application/octet-stream;base64")});
+            mem_buffers.push({...buffer, byteLength: 0, data: new Uint8Array(), embedded: (buffer.uri || "").startsWith("data:")});
         });
 
         const concat = (a, b) => {
@@ -69994,18 +69965,19 @@ async function main() {
             else if ('TEXCOORD_0' == attribute || 'TEXCOORD_1' == attribute) 
                 return (ct != GL.FLOAT && !accessor.normalized);
         };
-
+        console.log('gltf.images', gltf.images);
         const containing_folder = getContainingFolder(gltf.path);
         gltf.images.filter(img => img.mimeType !== ImageMimeType.GLTEXTURE).forEach((image) => {
             
             const image_new = {};
             if (image.uri !== undefined) {
-
-                const filename = image.uri.replace(containing_folder, "").replace(path.extname(image.uri), "");
-                const filename_ext = toExt(image.compressedMimeType);
+                const embedded = image.uri.startsWith("data:");
+                const filename = (!embedded) ? image.uri.replace(containing_folder, "").replace(path.extname(image.uri), "") : "data:";
+                const filename_ext = (!embedded) ? toExt(image.compressedMimeType) : image.compressedMimeType + ";base64," + base64(image.compressedImageTypedArrayBuffer);
+                const data = (!embedded) ?  image.compressedImageTypedArrayBuffer : undefined;
                 image_new.uri = filename + filename_ext;
                 image_new.mimeType = image.compressedMimeType;
-                uri_images.push({...image_new, data: image.compressedImageTypedArrayBuffer});
+                uri_images.push({...image_new, data: data});
             } else {
                 const bufferView = gltf.bufferViews[image.bufferView];
                 const og_bufferView = bufferView;
@@ -70260,7 +70232,10 @@ async function main() {
         }
 
         mem_buffers.forEach((buffer) => {
+            console.log('buffer', buffer);
+            buffer.uri = (!buffer.embedded) ? buffer.uri : "data:application/octet-stream;base64," + base64( buffer.data );
             gltfJSONNew.buffers.push({uri: buffer.uri, byteLength: buffer.data.byteLength, name: buffer.name});
+            buffer.data = (!buffer.embedded) ? buffer.data : undefined;
         });
         gltfJSONNew.bufferViews = bufferViews;
 
@@ -70313,10 +70288,10 @@ async function main() {
         {
             const zipWriter = new ZipWriter(new BlobWriter("application/zip"));
             const json_file = zipWriter.add(gltfDesc.uri, new TextReader(gltf));
-            const external_images = images.map((file) => {
+            const external_images = images.filter(img => img.data).map((file) => {
                 return zipWriter.add(file.uri, file.data instanceof Blob? new BlobReader(file.data) : new Uint8ArrayReader(file.data));
             });
-            const external_buffers = buffers.map((file) => {
+            const external_buffers = buffers.filter(buffer => buffer.data).map((file) => {
                 return zipWriter.add(file.uri, file.data instanceof Blob? new BlobReader(file.data) : new Uint8ArrayReader(file.data));
             });
             await Promise.all([ json_file, ...external_buffers, ...external_images ]);
