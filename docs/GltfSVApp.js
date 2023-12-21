@@ -23010,8 +23010,7 @@ class gltfPrimitive extends GltfObject
         this.computeCentroid(gltf);
     }
 
-    getSize(gltf)
-    {
+    getGPUSize(gltf) {
         let size = 0;
         for (const glAttribute of this.glAttributes)
         {
@@ -23019,6 +23018,28 @@ class gltfPrimitive extends GltfObject
             const idx = this.attributes[attribute];
 
             size += gltf.accessors[idx].getSize();
+        }
+        return size;
+    }
+
+    getSize(gltf)
+    {
+        let size = 0;
+        if (this.extensions && this.extensions.KHR_draco_mesh_compression) {
+            const bufferView = this.extensions.KHR_draco_mesh_compression.bufferView;
+            return gltf.bufferViews[bufferView].byteLength;
+        }
+        for (const glAttribute of this.glAttributes)
+        {
+            const attribute = glAttribute.attribute;
+            const idx = this.attributes[attribute];
+            const accessor   = gltf.accessors[idx];
+            const bufferView = gltf.bufferViews[accessor.bufferView];
+            if (bufferView.extensions && bufferView.extensions.EXT_meshopt_compression) {
+                size += bufferView.extensions.EXT_meshopt_compression.byteLength;
+            } else {
+                size += accessor.getSize();
+            }
         }
 
         // AV: Compute Animation & Morph Target size ?
@@ -26625,7 +26646,7 @@ class GltfView
             const node = gltf.nodes[i];
             const nodeName = node.name !== undefined ? node.name : "Node_" + i;
             const meshName = node.mesh !== undefined && state.gltf.meshes[node.mesh].name !== undefined ? state.gltf.meshes[node.mesh].name : "Mesh_" + node.mesh;
-
+            
             // Add to MeshNodeTree
             if(node.children.length > 0 || node.mesh !== undefined){
                 data.children.push({
@@ -26635,6 +26656,8 @@ class GltfView
                     meshInstances: node.meshInstances, 
                     primitivesLength: node.primitivesLength,
                     compressionFormatBefore: node.compressionFormatBefore,
+                    gpuSizeBefore: node.gpuSizeBefore,
+                    gpuSizeAfter: node.gpuSizeAfter,
                     diskSizeBefore: node.diskSizeBefore,
                     compressionFormatAfter: node.compressionFormatAfter,
                     diskSizeAfter: node.diskSizeAfter,
@@ -26670,18 +26693,25 @@ class GltfView
             // Computer file size per node
             if(i.mesh !== undefined){
                 var nodeSize = 0;
-                for(const prim of primitives)
+                var nodeGPUSize = 0;
+                for(const prim of primitives) {
                     nodeSize += prim.getSize(state.gltf);
+                    nodeGPUSize += prim.getGPUSize(state.gltf);
+                }
                 nodeSize = toMb(nodeSize);
-
+                nodeGPUSize = toMb(nodeGPUSize);
+                state.gltf.meshes[i.mesh].gpuSizeBefore = nodeGPUSize;
                 state.gltf.meshes[i.mesh].diskSizeBefore = nodeSize;
                 i.diskSizeBefore = state.gltf.meshes[i.mesh].diskSizeBefore.toFixed(2) + " mb";
+                i.gpuSizeBefore = state.gltf.meshes[i.mesh].gpuSizeBefore.toFixed(2) + " mb";
             }
-            else
+            else {
                 i.diskSizeBefore = "";
-
+                i.gpuSizeBefore = "";
+            }
             i.diskSizeAfter = "";
-
+            i.gpuSizeAfter = "";
+            
             // Check for mesh primitives count
             i.primitivesLength = primitives.length;
 
@@ -26724,6 +26754,8 @@ class GltfView
             meshInstances: [],
             primitivesLength: 0,
             compressionFormatBefore: "",
+            gpuSizeBefore: "",
+            gpuSizeAfter: "",
             diskSizeBefore: "",
             compressionFormatAfter: "",
             diskSizeAfter: "",
@@ -26901,10 +26933,15 @@ class GltfView
 
             if(isIncluded){
                 var meshSize = 0;
-                for(const prim of element.compressedNode.compressedMesh.primitives)
+                var meshGPUSize = 0;
+                for(const prim of element.compressedNode.compressedMesh.primitives) {
                     meshSize += prim.getSize(state.gltf);
+                    meshGPUSize += prim.getGPUSize(state.gltf);
+                }
                 meshSize = toMb(meshSize);
+                meshGPUSize = toMb(meshGPUSize);
                 state.gltf.meshes[element.mesh].diskSizeAfter = meshSize;
+                state.gltf.meshes[element.mesh].gpuSizeAfter = meshGPUSize;
             }
                 
             if(isIncluded){
@@ -26922,6 +26959,7 @@ class GltfView
                     index: element.mesh,
                     compressionFormatAfter: isIncluded ? state.gltf.meshes[element.mesh].compressionFormatAfter : "", 
                     diskSizeAfter: isIncluded ? state.gltf.meshes[element.mesh].diskSizeAfter.toFixed(2) + " mb" : "",  
+                    gpuSizeAfter: isIncluded ? state.gltf.meshes[element.mesh].gpuSizeAfter.toFixed(2) + " mb" : "",  
                     bboxErrorMin: bboxErrorMin? `${bboxErrorMin[0].toFixed(3)} ${bboxErrorMin[1].toFixed(3)} ${bboxErrorMin[2].toFixed(3)}` : "",
                     bboxErrorMax: bboxErrorMax? `${bboxErrorMax[0].toFixed(3)} ${bboxErrorMax[1].toFixed(3)} ${bboxErrorMax[2].toFixed(3)}` : "",
                     compressionError: element.compressionError? element.compressionError : ""
@@ -26948,6 +26986,8 @@ class GltfView
                     meshInstances: node.meshInstances, 
                     primitivesLength: node.primitivesLength,
                     compressionFormatBefore: node.compressionFormatBefore,
+                    gpuSizeBefore: node.gpuSizeBefore,
+                    gpuSizeAfter: node.gpuSizeAfter,
                     diskSizeBefore: node.diskSizeBefore,
                     compressionFormatAfter: node.compressionFormatAfter,
                     diskSizeAfter: node.diskSizeAfter,
@@ -26975,6 +27015,8 @@ class GltfView
             meshInstances: [],
             primitivesLength: 0,
             compressionFormatBefore: "",
+            gpuSizeBefore: "",
+            gpuSizeAfter: "",
             diskSizeBefore: "",
             compressionFormatAfter: "",
             diskSizeAfter: "",
@@ -30055,6 +30097,7 @@ class UIModel
                     let table_row = document.getElementById('mesh_table_row_' + mesh.index);
                     table_row.rows[4].cells[2].innerHTML = mesh.compressionFormatAfter;
                     table_row.rows[5].cells[2].innerHTML = mesh.diskSizeAfter;
+                    table_row.rows[6].cells[2].innerHTML = mesh.gpuSizeAfter;
                     table_row.rows[7].cells[2].innerHTML = mesh.bboxErrorMin;
                     table_row.rows[8].cells[2].innerHTML = mesh.bboxErrorMax;
                     table_row.rows[9].cells[2].innerHTML = mesh.compressionError;
