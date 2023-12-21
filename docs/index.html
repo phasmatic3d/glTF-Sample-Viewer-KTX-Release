@@ -649,31 +649,6 @@
                                         </b-field>
                                     </div>
                                     <div v-show="selectedCompressionGeometryType === 'MeshOpt'">
-                                        <b-field label="Filter Method" class="smallerLabel">
-                                            <b-select v-stream:input="compressionMeshOptFilterMethodSelectionChanged$"
-                                                v-model="selectedCompressionMeshOptFilterMethod">
-                                                <option v-for="(item) in compressionMeshOptFilterMethods" v-bind:value="item.title">
-                                                    {{ item.title }}
-                                                </option>
-                                            </b-select>
-                                        </b-field>
-                                        <div v-if="selectedCompressionMeshOptFilterMethod === 'EXPONENTIAL'">
-                                            <b-field label="Filter Mode" class="smallerLabel">
-                                                <b-select v-stream:input="compressionMeshOptFilterModeSelectionChanged$"
-                                                    v-model="selectedCompressionMeshOptFilterMode">
-                                                    <option v-for="(item) in compressionMeshOptFilterModes" v-bind:value="item.title">
-                                                        {{ item.title }}
-                                                    </option>
-                                                </b-select>
-                                            </b-field>
-                                        </div>
-                                        <b-field label="Filter Quantization Bits" class="smallerLabel">
-                                            <b-slider rounded v-model="compressionMeshOptFilterQuantizationBits" :min="4" v-bind:max="32" :step=4
-                                                class="iblIntensitySlider" v-stream:input="compressionMeshOptFilterQuantizationBitsChanged$">
-                                                <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
-                                                <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
-                                            </b-slider>
-                                        </b-field>
                                         <b-field label="POSITION Attribute Type" class="smallerLabel">
                                             <b-select v-stream:input="compressionMOptQuantizationPositionChanged$"
                                                 v-model="compressionMOptQuantizationPosition">
@@ -682,6 +657,33 @@
                                                 </option>
                                             </b-select>
                                         </b-field>
+                                        <b-field label="POSITION Filter" class="smallerLabel">
+                                            <b-select v-stream:input="positionFilterChanged$"
+                                                v-model="positionFilter">
+                                                <option v-for="(item) in compressionMeshOptFilterMethods" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+                                        <div v-show="positionFilter === 'EXPONENTIAL'">
+                                            <b-field label="POSITION Filter Mode" class="smallerLabel">
+                                                <b-select v-stream:input="positionFilterModeChanged$"
+                                                    v-model="positionFilterMode">
+                                                    <option v-for="(item) in compressionMeshOptFilterModes" v-bind:value="item.title">
+                                                        {{ item.title }}
+                                                    </option>
+                                                </b-select>
+                                            </b-field>
+                                        </div>
+                                        <div v-show="positionFilter !== 'NONE'">
+                                            <b-field label="POSITION Filter Bits" class="smallerLabel">
+                                                <b-slider rounded v-model="positionFilterBits" :min="4" v-bind:max="32" :step=4
+                                                    class="iblIntensitySlider" v-stream:input="positionFilterBitsChanged$">
+                                                    <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
+                                                    <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                </b-slider>
+                                            </b-field>
+                                        </div>
 
                                         <b-field label="NORMAL Attribute Type" class="smallerLabel">
                                             <b-select v-stream:input="compressionMOptQuantizationNormalChanged$"
@@ -691,6 +693,34 @@
                                                 </option>
                                             </b-select>
                                         </b-field>
+                                        <b-field label="NORMAL Filter" class="smallerLabel">
+                                            <b-select v-stream:input="normalFilterChanged$"
+                                                v-model="normalFilter">
+                                                <option v-for="(item) in compressionMeshOptFilterMethods" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+                                        <div v-if="tangentFilter === 'EXPONENTIAL'">
+                                            <b-field label="NORMAL Filter Mode" class="smallerLabel">
+                                                <b-select v-stream:input="normalFilterModeChanged$"
+                                                    v-model="normalFilterMode">
+                                                    <option v-for="(item) in compressionMeshOptFilterModes" v-bind:value="item.title">
+                                                        {{ item.title }}
+                                                    </option>
+                                                </b-select>
+                                            </b-field>
+                                        </div>
+                                        <div v-if="normalFilter !== 'NONE'">
+                                            <b-field label="NORMAL Filter Bits" class="smallerLabel">
+                                                <b-slider rounded v-model="normalFilterBits" :min="4" v-bind:max="32" :step=4
+                                                    class="iblIntensitySlider" v-stream:input="normalFilterBitsChanged$">
+                                                    <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
+                                                    <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                </b-slider>
+                                            </b-field>
+                                        </div>
+
 
                                         <b-field label="TANGENT Attribute Type" class="smallerLabel">
                                             <b-select v-stream:input="compressionMOptQuantizationTangentChanged$"
@@ -700,7 +730,34 @@
                                                 </option>
                                             </b-select>
                                         </b-field>
-
+                                        <b-field label="TANGENT Filter" class="smallerLabel">
+                                            <b-select v-stream:input="tangentFilterChanged$"
+                                                v-model="tangentFilter">
+                                                <option v-for="(item) in compressionMeshOptFilterMethods" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+                                        <div v-if="tangentFilter === 'EXPONENTIAL'">
+                                            <b-field label="TANGENT Filter Mode" class="smallerLabel">
+                                                <b-select v-stream:input="tangentFilterModeChanged$"
+                                                    v-model="tangentFilterMode">
+                                                    <option v-for="(item) in compressionMeshOptFilterModes" v-bind:value="item.title">
+                                                        {{ item.title }}
+                                                    </option>
+                                                </b-select>
+                                            </b-field>
+                                        </div>
+                                        <div v-if="tangentFilter !== 'NONE'">
+                                            <b-field label="TANGENT Filter Bits" class="smallerLabel">
+                                                <b-slider rounded v-model="tangentFilterBits" :min="4" v-bind:max="32" :step=4
+                                                    class="iblIntensitySlider" v-stream:input="tangentFilterBitsChanged$">
+                                                    <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
+                                                    <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                </b-slider>
+                                            </b-field>
+                                        </div>
+                                        
                                         <b-field label="TEXCOORD 0 Attribute Type" class="smallerLabel">
                                             <b-select v-stream:input="compressionMOptQuantizationTexCoords0Changed$"
                                                 v-model="compressionMOptQuantizationTexCoords0">
@@ -709,6 +766,34 @@
                                                 </option>
                                             </b-select>
                                         </b-field>
+                                        <b-field label="TEXCOORD 0 Filter" class="smallerLabel">
+                                            <b-select v-stream:input="tex0FilterChanged$"
+                                                v-model="tex0Filter">
+                                                <option v-for="(item) in compressionMeshOptFilterMethods" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+                                        <div v-if="tex0Filter === 'EXPONENTIAL'">
+                                            <b-field label="TEXCOORD 0 Filter Mode" class="smallerLabel">
+                                                <b-select v-stream:input="tex0FilterModeChanged$"
+                                                    v-model="tex0FilterMode">
+                                                    <option v-for="(item) in compressionMeshOptFilterModes" v-bind:value="item.title">
+                                                        {{ item.title }}
+                                                    </option>
+                                                </b-select>
+                                            </b-field>
+                                        </div>
+                                        <div v-if="tex0Filter !== 'NONE'">
+                                            <b-field label="TEXCOORD 0 Filter Bits" class="smallerLabel">
+                                                <b-slider rounded v-model="tex0FilterBits" :min="4" v-bind:max="32" :step=4
+                                                    class="iblIntensitySlider" v-stream:input="tex0FilterBitsChanged$">
+                                                    <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
+                                                    <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                </b-slider>
+                                            </b-field>
+                                        </div>
+
 
                                         <b-field label="TEXCOORD 1 Attribute Type" class="smallerLabel">
                                             <b-select v-stream:input="compressionMOptQuantizationTexCoords1Changed$"
@@ -718,6 +803,34 @@
                                                 </option>
                                             </b-select>
                                         </b-field>
+                                        <b-field label="TEXCOORD 1 Filter" class="smallerLabel">
+                                            <b-select v-stream:input="tex1FilterChanged$"
+                                                v-model="tex1Filter">
+                                                <option v-for="(item) in compressionMeshOptFilterMethods" v-bind:value="item.title">
+                                                    {{ item.title }}
+                                                </option>
+                                            </b-select>
+                                        </b-field>
+                                        <div v-if="tex1Filter === 'EXPONENTIAL'">
+                                            <b-field label="TEXCOORD 1 Filter Mode" class="smallerLabel">
+                                                <b-select v-stream:input="tex1FilterModeChanged$"
+                                                    v-model="tex1FilterMode">
+                                                    <option v-for="(item) in compressionMeshOptFilterModes" v-bind:value="item.title">
+                                                        {{ item.title }}
+                                                    </option>
+                                                </b-select>
+                                            </b-field>
+                                        </div>
+                                        <div v-if="tex1Filter !== 'NONE'">
+                                            <b-field label="TEXCOORD 1 Filter Bits" class="smallerLabel">
+                                                <b-slider rounded v-model="tex1FilterBits" :min="4" v-bind:max="32" :step=4
+                                                    class="iblIntensitySlider" v-stream:input="tex1FilterBitsChanged$">
+                                                    <b-slider-tick :value="4" class="iblIntensitySliderMarker">4</b-slider-tick>
+                                                    <b-slider-tick :value="32" class="iblIntensitySliderMarker">32</b-slider-tick>
+                                                </b-slider>
+                                            </b-field>
+                                        </div>
+
                                         <b-switch v-model="selectedCompressionMeshOptReorder" v-stream:input="compressionMeshOptReorderChanged$">Reorder 
                                         </b-switch>
                                         

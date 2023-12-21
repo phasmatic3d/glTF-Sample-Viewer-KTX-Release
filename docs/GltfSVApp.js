@@ -6882,8 +6882,6 @@ class gltfAccessor extends GltfObject
 
 
         moptDecoder.decodeGltfBuffer(bytes(decoded), bufferView.count, byteStride, encoded, bufferView.mode, filter);
-        console.log('decoded', decoded);
-        console.log('encoded', encoded);
         return {buffer: decoded.buffer};
     }
 
@@ -21536,9 +21534,43 @@ class GeometryMeshOptOptions {
         this.colorCompressionQuantizationBits = 16;
         this.texcoordCompressionQuantizationBits = 12;
 
-        this.filterMethod = "NONE";
-        this.filterMode = "Seperate";
+        this.positionFilter = "NONE";
+        this.positionFilterMode = "Separate";
+        this.positionFilterBits = 16;
+        this.normalFilter = "NONE";
+        this.normalFilterMode = "Separate";
+        this.normalFilterBits = 16;
+        this.tangentFilter = "NONE";
+        this.tangentFilterMode = "Separate";
+        this.tangentFilterBits = 16;
+        this.tex0Filter = "NONE";
+        this.tex0FilterMode = "Separate";
+        this.tex0FilterBits = 16;
+        this.tex1Filter = "NONE";
+        this.tex1FilterMode = "Separate";
+        this.tex1FilterBits = 16;
         this.reorder = false;
+
+        this.positionCompression = 0; // all available formats
+        this.positionCompressionNormalized = true;
+
+        this.normalsCompression = 0; // float, byte/short normalized
+        this.normalsCompressionNormalized = false;
+
+        this.texcoord0Compression = 0; // all available formats except unsigned normalized
+        this.texcoord0CompressionNormalized = true;
+        this.texcoord0CompressionOffset = undefined;
+        this.texcoord0CompressionScale = undefined;
+
+        this.texcoord1Compression = 0; // all available formats except unsigned normalized
+        this.texcoord1CompressionNormalized = true;
+        this.texcoord1CompressionOffset = undefined;
+        this.texcoord1CompressionScale = undefined;
+
+        this.tangentsCompression = 0; // float, byte/short normalized
+        this.tangentsCompressionNormalized = false;
+        this.scale = undefined;
+        this.offset = undefined;
     }
 }
 
@@ -22704,18 +22736,79 @@ class gltfPrimitive extends GltfObject
         this.initGl(gltf, gltf.view.context);
     }
 
+    quantize(gltf, inputAccessor, componentType, normalized, remap, offset, scale) {
+        const componentTypeByteSize = getComponentDataTypeSize(componentType);
+        const numberOfComponents = NumberOfComponentsMap[`${inputAccessor.type}`];
+        const reorder = (reordered_data, data, remap, compCount) => {
+            for (let i = 0; i < (data.length / compCount); ++i)
+                for (let j = 0; j < compCount; ++j)
+                    reordered_data[compCount * remap[i] + j] = data[i * compCount + j];
+        };
+
+        // 4 byte aligned
+        const byteStride = 4 * (Math.floor((componentTypeByteSize * numberOfComponents - 1) / 4) + 1);
+    
+        let inputFloatArrayView = new Float32Array(inputAccessor.getNormalizedDeinterlacedView(gltf));
+        if(scale !== undefined)
+        {
+            inputFloatArrayView = inputFloatArrayView.map((v,i) => (v + offset[i % numberOfComponents]) * scale); // inverse of T*R*S
+        }
+
+        //console.log('inputAccessor', inputAccessor);
+        //console.log('remap', remap);
+        let inputArrayView = inputFloatArrayView;
+        let reorderedInputArrayView = inputArrayView;
+        if (remap.length > 0) {
+            reorderedInputArrayView = new Float32Array(inputAccessor.count * numberOfComponents);
+            reorder(reorderedInputArrayView, inputArrayView, remap, numberOfComponents);
+        }
+
+        //console.log('inputFloatArrayView', inputFloatArrayView);
+        //console.log('inputArrayView', inputArrayView);
+        //console.log('reorderedInputArrayView', reorderedInputArrayView);
+        const quantized_data_length = inputAccessor.count * byteStride;
+        const quantized_data = new ArrayBuffer(quantized_data_length);
+
+        // convert to the requested quantization format
+        if(normalized)
+            fillQuantizedBufferNormalized(reorderedInputArrayView, quantized_data, componentType, numberOfComponents, inputAccessor.count, byteStride / componentTypeByteSize);
+        else
+            fillQuantizedBuffer(reorderedInputArrayView, quantized_data, componentType, numberOfComponents, inputAccessor.count, byteStride / componentTypeByteSize);
+
+        return quantized_data;
+    }
+
     compressGeometryMeshopt(options, gltf) {
+        const align4Bytes = (num) => 4 * Math.floor((num - 1) / 4) + 4;
         const should_reorder = options.reorder;
-        const filterMethod = options.filterMethod;
-        const filterMode = options.filterMode;
-        const filterBits = options.filterQuantizationBits;
-        const moptDecoder = gltf.moptDecoder;
+        gltf.moptDecoder;
         const moptEncoder = gltf.moptEncoder;
         const moptFilters = {
             'NONE': (source, count, stride, bits, mode) => source,
             'OCTAHEDRAL': (source, count, stride, bits, mode) => moptEncoder.encodeFilterOct(source, count, stride, bits),
             'QUATERNION': (source, count, stride, bits, mode) => moptEncoder.encodeFilterQuat(source, count, stride, bits),
             'EXPONENTIAL': (source, count, stride, bits, mode) => moptEncoder.encodeFilterExp(source, count, stride, bits, mode)
+        };
+        const moptFilterMethods = {
+            'NORMAL': (options) => options.normalFilter,
+            'POSITION': (options) => options.positionFilter,
+            'TANGENT': (options) => options.tangentFilter,
+            'TEXCOORD_0': (options) => options.tex0Filter,
+            'TEXCOORD_1': (options) => options.tex1Filter
+        };
+        const moptFilterModes = {
+            'NORMAL': (options) => options.normalFilterMode,
+            'POSITION': (options) => options.positionFilterMode,
+            'TANGENT': (options) => options.tangentFilterMode,
+            'TEXCOORD_0': (options) => options.tex0FilterMode,
+            'TEXCOORD_1': (options) => options.tex1FilterMode
+        };
+        const moptFilterBits = {
+            'NORMAL': (options) => options.normalFilterBits,
+            'POSITION': (options) => options.positionFilterBits,
+            'TANGENT': (options) => options.tangentFilterBits,
+            'TEXCOORD_0': (options) => options.tex0FilterBits,
+            'TEXCOORD_1': (options) => options.tex1FilterBits
         };
         const reorder = (reordered_data, data, remap, compCount) => {
             for (let i = 0; i < (data.length / compCount); ++i)
@@ -22731,14 +22824,9 @@ class gltfPrimitive extends GltfObject
             const accessor = gltf.accessors[this.indices];
             const byteStride = indices.byteLength / indices.length;
             if (should_reorder) {
-                const indices32 = new Uint32Array(indices.length);
-                for(var i = 0; i < indices.length; i++) {
-                    indices32[i] = indices[i];
-                }
+                const indices32 = new Uint32Array(indices);
                 [remap, unique_ids] = (should_reorder) ? gltf.moptEncoder.reorderMesh(indices32, /* triangles= */ true, /* optsize= */ true) : null;
-                for(var i = 0; i < indices32.length; i++) {
-                    indices[i] = indices32[i];
-                }
+                for(var i = 0; i < indices32.length; i++) indices[i] = indices32[i];
             }
            
             const indices_encoded = moptEncoder.encodeGltfBuffer(indices, indices.length, byteStride, 'TRIANGLES');
@@ -22764,7 +22852,7 @@ class gltfPrimitive extends GltfObject
                     byteLength: buffer.byteLength,
                     byteStride: byteStride,
                     mode: "TRIANGLES",
-                    filter: filterMethod,
+                    filter: undefined,
                     count: face_count * 3
                 }
             };
@@ -22786,15 +22874,35 @@ class gltfPrimitive extends GltfObject
         for (const glAttribute of this.glAttributes) {
             const attribute = glAttribute.attribute;
             const accessor = gltf.accessors[glAttribute.accessor];
-            const data = accessor.getTypedView(gltf);
             const compCount = accessor.getComponentCount(accessor.type);
-            const compSize = accessor.getComponentSize(accessor.componentType);
-            const byteStride = compSize * compCount;
+            let compSize = accessor.getComponentSize(accessor.componentType);
+            let compType = accessor.componentType;
+            let byteStride = compSize * compCount;
+            let data = accessor.getTypedView(gltf);
+            let normalized = undefined;
+
+            if(attribute == "NORMAL" && options.normalsCompression !== 0) {
+                data = new Uint8Array(this.quantize(gltf, accessor, options.normalsCompression, options.normalsCompressionNormalized, remap));
+                compType = options.normalsCompression;
+                compSize = getComponentDataTypeSize(options.normalsCompression);
+                byteStride = align4Bytes(compSize * compCount);
+                normalized = options.normalsCompressionNormalized;
+            } else if(attribute == "POSITION" && options.positionCompression !== 0) {
+                data = new Uint8Array(this.quantize(gltf, accessor, options.positionCompression, options.positionCompressionNormalized, remap, options.offset, options.scale));
+                compType = options.positionCompression;
+                compSize = getComponentDataTypeSize(options.positionCompression);
+                byteStride = align4Bytes(compSize * compCount);
+                normalized = options.positionCompressionNormalized;
+            }
+
+            const filterMethod = moptFilterMethods[attribute](options);
+            const filterMode = moptFilterModes[attribute](options);
+            const filterBits = moptFilterBits[attribute](options);
+
             const attr_count = (unique_ids >= 0) ? unique_ids : data.byteLength / byteStride;
             let data_encoded = null;
             let reordered_data = data;
-            let decoded = null;
-            switch (accessor.componentType)
+            switch (compType)
             {
             case GL.BYTE: break;
             case GL.UNSIGNED_BYTE: break;
@@ -22806,24 +22914,12 @@ class gltfPrimitive extends GltfObject
                     reordered_data = new Float32Array(attr_count * compCount);
                     reorder(reordered_data, data, remap, compCount);
                 }
-                decoded = new Float32Array(attr_count * compCount);
 
                 break;
             }
             
-            /*var filterBits = 4;
-            if (attribute === "POSITION")
-                filterBits = options.positionCompressionQuantizationBits;
-            else if (attribute === "NORMAL")
-                filterBits = options.normalCompressionQuantizationBits;
-            else if (attribute === "COLOR")
-                filterBits = options.colorCompressionQuantizationBits;
-            else if (attribute === "TEXCOORD_0" || attribute === "TEXCOORD_1")
-                filterBits = options.texcoordCompressionQuantizationBits;*/
             const reordered_filtered_data = moptFilters[filterMethod](reordered_data, attr_count, byteStride, filterBits, filterMode);
             data_encoded = moptEncoder.encodeGltfBuffer(reordered_filtered_data, attr_count, byteStride, 'ATTRIBUTES');
-            const bytes = (view) => new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-            moptDecoder.decodeGltfBuffer(bytes(decoded), attr_count, byteStride, data_encoded, 'ATTRIBUTES', filterMode);
     
             // create a new buffer
             const buffer = new gltfBuffer();
@@ -22858,7 +22954,8 @@ class gltfPrimitive extends GltfObject
             accessor_compressed.byteOffset = 0;
             accessor_compressed.count = attr_count;
             accessor_compressed.type = accessor.type;
-            accessor_compressed.componentType = accessor.componentType;
+            accessor_compressed.componentType = compType;
+            accessor_compressed.normalized = normalized;
             accessor_compressed.min = accessor.min;
             accessor_compressed.max = accessor.max;
             gltf.accessors.push(accessor_compressed);
@@ -29433,6 +29530,24 @@ class UIModel
         this.compressionMeshOptFilterMethod = app.compressionMeshOptFilterMethodSelectionChanged$.pipe(pluck("event", "msg"));
         this.compressionMeshOptFilterMode = app.compressionMeshOptFilterModeSelectionChanged$.pipe(pluck("event", "msg"));
         this.compressionMeshOptFilterQuantizationBits = app.compressionMeshOptFilterQuantizationBitsChanged$.pipe(pluck("event", "msg"));
+        this.positionFilter = app.positionFilterChanged$.pipe(pluck("event", "msg"));
+        this.positionFilterMode = app.positionFilterModeChanged$.pipe(pluck("event", "msg"));
+        this.positionFilterBits = app.positionFilterBitsChanged$.pipe(pluck("event", "msg"));
+        this.normalFilter = app.normalFilterChanged$.pipe(pluck("event", "msg"));
+        this.normalFilterMode = app.normalFilterModeChanged$.pipe(pluck("event", "msg"));
+        this.normalFilterBits = app.normalFilterBitsChanged$.pipe(pluck("event", "msg"));
+        this.tangentFilter = app.tangentFilterChanged$.pipe(pluck("event", "msg"));
+        this.tangentFilterMode = app.tangentFilterModeChanged$.pipe(pluck("event", "msg"));
+        this.tangentFilterBits = app.tangentFilterBitsChanged$.pipe(pluck("event", "msg"));
+        this.tex0Filter = app.tex0FilterChanged$.pipe(pluck("event", "msg"));
+        this.tex0FilterMode = app.tex0FilterModeChanged$.pipe(pluck("event", "msg"));
+        this.tex0FilterBits = app.tex0FilterBitsChanged$.pipe(pluck("event", "msg"));
+        this.tex1Filter = app.tex1FilterChanged$.pipe(pluck("event", "msg"));
+        this.tex1FilterMode = app.tex1FilterModeChanged$.pipe(pluck("event", "msg"));
+        this.tex1FilterBits = app.tex1FilterBitsChanged$.pipe(pluck("event", "msg"));
+        
+        this.compressionMeshOptFilterQuantizationBits = app.compressionMeshOptFilterQuantizationBitsChanged$.pipe(pluck("event", "msg"));
+        
         this.compressionMeshOptReorder = app.compressionMeshOptReorderChanged$.pipe(pluck("event", "msg"));
         
         this.compressionMOptQuantizationPosition = app.compressionMOptQuantizationPositionChanged$.pipe(pluck("event", "msg"));
@@ -29855,6 +29970,22 @@ class UIModel
                 this.app.selectedCompressionMeshOptFilterMethod = "NONE";
                 this.app.selectedCompressionMeshOptFilterMode = "Separate";
                 this.app.compressionMeshOptFilterQuantizationBits = 16;
+                this.app.positionFilter = "NONE";
+                this.app.positionFilterMode = "Separate";
+                this.app.positionFilterBits = 16;
+                this.app.normalFilter = "NONE";
+                this.app.normalFilterMode = "Separate";
+                this.app.normalFilterBits = 16;
+                this.app.tangentFilter = "NONE";
+                this.app.tangentFilterMode = "Separate";
+                this.app.tangentFilterBits = 16;
+                this.app.tex0Filter = "NONE";
+                this.app.tex0FilterMode = "Separate";
+                this.app.tex0FilterBits = 16;
+                this.app.tex1Filter = "NONE";
+                this.app.tex1FilterMode = "Separate";
+                this.app.tex1FilterBits = 16;
+        
                 this.app.selectedCompressionMeshOptReorder = false;
                 this.app.compressionMOptQuantizationPosition = "NONE";
                 this.app.compressionMOptQuantizationNormal = "NONE";
@@ -58625,6 +58756,21 @@ const app = new Vue$2({
         'compressionDracoQuantizationTangentQuantBitsChanged$',
         'compressionDracoQuantizationWeightQuantBitsChanged$',
         'compressionDracoQuantizationJointQuantBitsChanged$',
+        'positionFilterChanged$',
+        'positionFilterModeChanged$',
+        'positionFilterBitsChanged$',
+        'normalFilterChanged$',
+        'normalFilterModeChanged$',
+        'normalFilterBitsChanged$',
+        'tangentFilterChanged$',
+        'tangentFilterModeChanged$',
+        'tangentFilterBitsChanged$',
+        'tex0FilterChanged$',
+        'tex0FilterModeChanged$',
+        'tex0FilterBitsChanged$',
+        'tex1FilterChanged$',
+        'tex1FilterModeChanged$',
+        'tex1FilterBitsChanged$',
         'compressionQuantizationPositionTypeSelectionChanged$', 'compressionQuantizationNormalTypeSelectionChanged$', 'compressionQuantizationTangentTypeSelectionChanged$',
         'compressionQuantizationTexCoords0TypeSelectionChanged$', 'compressionQuantizationTexCoords1TypeSelectionChanged$',
         'texturesSelectionChanged$', 'compressionTextureSelectionChanged$', 'compressionUASTC_Rdo_AlgorithmSelectionChanged$', 
@@ -58709,6 +58855,21 @@ const app = new Vue$2({
             compressionMeshOptFilterModes: [{title: "Separate"}, {title: "SharedVector"}, {title: "SharedComponent"}],
             selectedCompressionMeshOptFilterMode: "Separate",
             compressionMeshOptFilterQuantizationBits: 16,
+            positionFilter: "NONE",
+            positionFilterMode: "Separate",
+            positionFilterBits: 16,
+            normalFilter: "NONE",
+            normalFilterMode: "Separate",
+            normalFilterBits: 16,
+            tangentFilter: "NONE",
+            tangentFilterMode: "Separate",
+            tangentFilterBits: 16,
+            tex0Filter: "NONE",
+            tex0FilterMode: "Separate",
+            ex0FilterBits: 16,
+            tex1Filter: "NONE",
+            tex1FilterMode: "Separate",
+            tex1FilterBits: 16,
             selectedCompressionMeshOptReorder: false,
             compressionMOptQuantizationPosition: "NONE",
             compressionMOptQuantizationTangent: "NONE",
@@ -69524,6 +69685,57 @@ async function main() {
         state.compressorParameters.compressionMeshOptFilterQuantizationBits = compressionMeshOptFilterQuantizationBits;
     });
 
+    uiModel.positionFilter.subscribe( positionFilter => {
+        console.log('positionFilter', positionFilter);
+        state.compressorParameters.positionFilter = positionFilter;
+    });
+    uiModel.positionFilterMode.subscribe( positionFilterMode => {
+        state.compressorParameters.positionFilterMode = positionFilterMode;
+    });
+    uiModel.positionFilterBits.subscribe( positionFilterBits => {
+        state.compressorParameters.positionFilterBits = positionFilterBits;
+    });
+
+    uiModel.tangentFilter.subscribe( tangentFilter => {
+        state.compressorParameters.tangentFilter = tangentFilter;
+    });
+    uiModel.tangentFilterMode.subscribe( tangentFilterMode => {
+        state.compressorParameters.tangentFilterMode = tangentFilterMode;
+    });
+    uiModel.tangentFilterBits.subscribe( tangentFilterBits => {
+        state.compressorParameters.tangentFilterBits = tangentFilterBits;
+    });
+
+    uiModel.normalFilter.subscribe( normalFilter => {
+        state.compressorParameters.normalFilter = normalFilter;
+    });
+    uiModel.normalFilterMode.subscribe( normalFilterMode => {
+        state.compressorParameters.normalFilterMode = normalFilterMode;
+    });
+    uiModel.normalFilterBits.subscribe( normalFilterBits => {
+        state.compressorParameters.normalFilterBits = normalFilterBits;
+    });
+
+    uiModel.tex0Filter.subscribe( tex0Filter => {
+        state.compressorParameters.tex0Filter = tex0Filter;
+    });
+    uiModel.tex0FilterMode.subscribe( tex0FilterMode => {
+        state.compressorParameters.tex0FilterMode = tex0FilterMode;
+    });
+    uiModel.tex0FilterBits.subscribe( tex0FilterBits => {
+        state.compressorParameters.tex0FilterBits = tex0FilterBits;
+    });
+
+    uiModel.tex1Filter.subscribe( tex1Filter => {
+        state.compressorParameters.tex1Filter = tex1Filter;
+    });
+    uiModel.tex1FilterMode.subscribe( tex1FilterMode => {
+        state.compressorParameters.tex1FilterMode = tex1FilterMode;
+    });
+    uiModel.tex1FilterBits.subscribe( tex1FilterBits => {
+        state.compressorParameters.tex1FilterBits = tex1FilterBits;
+    });
+
     uiModel.compressionMeshOptReorder.subscribe( compressionMeshOptReorder => {
         state.compressorParameters.compressionMeshOptReorder = compressionMeshOptReorder;
     });
@@ -69720,14 +69932,42 @@ async function main() {
             else //if(type === GEOMETRY_COMPRESSION_TYPE.MESHOPT)
             {
                 compress_options = new GeometryMeshOptOptions();
-                compress_options.filterMethod = state.compressorParameters.compressionMeshOptFilterMethod;
-                compress_options.filterMode = state.compressorParameters.compressionMeshOptFilterMode; 
-                compress_options.filterQuantizationBits = state.compressorParameters.compressionMeshOptFilterQuantizationBits;
                 compress_options.reorder = state.compressorParameters.compressionMeshOptReorder;
                 compress_options.positionCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationPositionQuantBits;
                 compress_options.normalCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationNormalQuantBits;
                 compress_options.colorCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationColorQuantBits;
                 compress_options.texcoordCompressionQuantizationBits = state.compressorParameters.compressionMeshOptQuantizationTexcoordQuantBits;
+                compress_options.compressionMOptQuantizationPosition = state.compressorParameters.compressionMOptQuantizationPosition;
+                compress_options.compressionMOptQuantizationNormal = state.compressorParameters.compressionMOptQuantizationNormal;
+                compress_options.compressionMOptQuantizationTangent = state.compressorParameters.compressionMOptQuantizationTangent;
+                compress_options.compressionMOptQuantizationTexCoords0 = state.compressorParameters.compressionMOptQuantizationTexCoords0;
+                compress_options.compressionMOptQuantizationTexCoords1 = state.compressorParameters.compressionMOptQuantizationTexCoords1;
+                compress_options.positionCompression = getComponentDataType(state.compressorParameters.compressionMOptQuantizationPosition);
+                compress_options.positionCompressionNormalized = isComponentDataTypeNormalized(state.compressorParameters.compressionMOptQuantizationPosition);
+                compress_options.positionFilter = state.compressorParameters.positionFilter;
+                compress_options.positionFilterMode = state.compressorParameters.positionFilterMode;
+                compress_options.positionFilterBits = state.compressorParameters.positionFilterBits;
+                compress_options.normalsCompression = getComponentDataType(state.compressorParameters.compressionMOptQuantizationNormal);
+                compress_options.normalsCompressionNormalized = isComponentDataTypeNormalized(state.compressorParameters.compressionMOptQuantizationNormal);
+                compress_options.normalFilter = state.compressorParameters.normalFilter;
+                compress_options.normalFilterMode = state.compressorParameters.normalFilterMode;
+                compress_options.normalFilterBits = state.compressorParameters.normalFilterBits;
+                compress_options.tangentCompression = getComponentDataType(state.compressorParameters.compressionMOptQuantizationTangent);
+                compress_options.tangentCompressionNormalized = isComponentDataTypeNormalized(state.compressorParameters.compressionMOptQuantizationTangent);
+                compress_options.tangentFilter = state.compressorParameters.tangentFilter;
+                compress_options.tangentFilterMode = state.compressorParameters.tangentFilterMode;
+                compress_options.tangentFilterBits = state.compressorParameters.tangentFilterBits;
+                compress_options.tangentFilter = state.compressorParameters.tangentFilter;
+                compress_options.texcoord0Compression = getComponentDataType(state.compressorParameters.compressionMOptQuantizationTexCoords0);
+                compress_options.texcoord0CompressionNormalized = isComponentDataTypeNormalized(state.compressorParameters.compressionMOptQuantizationTexCoords0);
+                compress_options.tex0Filter = state.compressorParameters.tex0Filter;
+                compress_options.tex0FilterMode = state.compressorParameters.tex0FilterMode;
+                compress_options.tex0FilterBits = state.compressorParameters.tex0FilterBits;
+                compress_options.texcoord1Compression = getComponentDataType(state.compressorParameters.compressionMOptQuantizationTexCoords1);
+                compress_options.texcoord1CompressionNormalized = isComponentDataTypeNormalized(state.compressorParameters.compressionMOptQuantizationTexCoords1);
+                compress_options.tex1Filter = state.compressorParameters.tex1Filter;
+                compress_options.tex1FilterMode = state.compressorParameters.tex1FilterMode;
+                compress_options.tex1FilterBits = state.compressorParameters.tex1FilterBits;
             }
             console.log('compress_options', compress_options);
 
@@ -69899,10 +70139,10 @@ async function main() {
         
         console.log('og_GLTF', gltf.og_gltf);
         console.log('GLTF', gltf);
-        {
-            const gltfJSONNew = {...gltf.originalJSON}; // no need for deeper cloning
 
-            
+
+        const gltfJSONNew = {...gltf.originalJSON}; // no need for deeper cloning
+
         gltfJSONNew.images = [];
         gltfJSONNew.bufferViews = [];
         gltfJSONNew.buffers = [];
@@ -69957,7 +70197,6 @@ async function main() {
         let usesDraco = false;
         const isQuantizedCb = (attribute, accessor) => {
             const ct = accessor.componentType;
-            console.log('attribute key', attribute);
             if ('POSITION' == attribute) 
                 return (ct == GL.BYTE || ct == GL.UNSIGNED_BYTE || ct == GL.SHORT || ct == GL.UNSIGNED_SHORT);
             else if ('NORMAL' == attribute || 'TANGENT' == attribute) 
@@ -69965,7 +70204,7 @@ async function main() {
             else if ('TEXCOORD_0' == attribute || 'TEXCOORD_1' == attribute) 
                 return (ct != GL.FLOAT && !accessor.normalized);
         };
-        console.log('gltf.images', gltf.images);
+
         const containing_folder = getContainingFolder(gltf.path);
         gltf.images.filter(img => img.mimeType !== ImageMimeType.GLTEXTURE).forEach((image) => {
             
@@ -70232,16 +70471,13 @@ async function main() {
         }
 
         mem_buffers.forEach((buffer) => {
-            console.log('buffer', buffer);
             buffer.uri = (!buffer.embedded) ? buffer.uri : "data:application/octet-stream;base64," + base64( buffer.data );
             gltfJSONNew.buffers.push({uri: buffer.uri, byteLength: buffer.data.byteLength, name: buffer.name});
             buffer.data = (!buffer.embedded) ? buffer.data : undefined;
         });
         gltfJSONNew.bufferViews = bufferViews;
 
-        //const dracoGeometryExists = gltfJSONNew.meshes.some(mesh => mesh.primitives.some( prim => (prim.extensions && prim.extensions.KHR_draco_mesh_compression)));
         const dracoGeometryExists = usesDraco;
-        //const moptGeometryExists = gltfJSONNew.bufferViews.some(bufferView => bufferView.extensions && bufferView.extensions.EXT_meshopt_compression);
         const moptGeometryExists = usesMeshopt;
         const quantizedGeometryExists = usesQuantization;
         const webpImagesExists = gltf.images.some(img => img.compressedMimeType === ImageMimeType.WEBP);
@@ -70273,8 +70509,6 @@ async function main() {
         console.log('gltfJSONNew', gltfJSONNew);
 
         return {gltfDesc: {uri: path.basename(gltf.path), data: gltfJSONNew}, images: uri_images, buffers: mem_buffers};
-    }
-        //return {gltfDesc: {uri: path.basename(gltf.path), data: gltfJSON}, externalFiles: [...externalBuffers, ...externalImages], internalBuffers};
     }));
     gltfExportChangedObservable.subscribe( async ({gltfDesc, images, buffers}) => {
         const gltf = JSON.stringify(gltfDesc.data, undefined, 4);
@@ -70436,6 +70670,22 @@ async function main() {
         state.compressorParameters.compressionMOptQuantizationTangent = "NONE";
         state.compressorParameters.compressionMOptQuantizationTexCoords0 = "NONE";
         state.compressorParameters.compressionMOptQuantizationTexCoords1 = "NONE";
+        state.compressorParameters.positionFilter = "NONE";
+        state.compressorParameters.positionFilterMode = "Separate";
+        state.compressorParameters.positionFilterBits = 16;
+        state.compressorParameters.normalFilter = "NONE";
+        state.compressorParameters.normalFilterMode = "Separate";
+        state.compressorParameters.normalFilterBits = 16;
+        state.compressorParameters.tangentFilter = "NONE";
+        state.compressorParameters.tangentFilterMode = "Separate";
+        state.compressorParameters.tangentFilterBits = 16;
+        state.compressorParameters.tex0Filter = "NONE";
+        state.compressorParameters.tex0FilterMode = "Separate";
+        state.compressorParameters.tex0FilterBits = 16;
+        state.compressorParameters.tex1Filter = "NONE";
+        state.compressorParameters.tex1FilterMode = "Separate";
+        state.compressorParameters.tex1FilterBits = 16;
+        
     });
 
     // End GSV-KTX
