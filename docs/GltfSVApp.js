@@ -2802,14 +2802,12 @@ class gltfWebGl
 
         if (gltfTex === undefined)
         {
-            console.warn("Texture is undefined: " + textureInfo.index);
             return false;
         }
 
         const image = gltf.images[gltfTex.source];
         if (image === undefined)
         {
-            console.warn("Image is undefined for texture: " + gltfTex.source);
             return false;
         }
 
@@ -3678,7 +3676,7 @@ class ImagePreviewRenderer
     }
 }
 
-var pbrShader = "//\n// This fragment shader defines a reference implementation for Physically Based Shading of\n// a microfacet surface material defined by a glTF model.\n//\n// References:\n// [1] Real Shading in Unreal Engine 4\n//     http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf\n// [2] Physically Based Shading at Disney\n//     http://blog.selfshadow.com/publications/s2012-shading-course/burley/s2012_pbs_disney_brdf_notes_v3.pdf\n// [3] README.md - Environment Maps\n//     https://github.com/KhronosGroup/glTF-WebGL-PBR/#environment-maps\n// [4] \"An Inexpensive BRDF Model for Physically based Rendering\" by Christophe Schlick\n//     https://www.cs.virginia.edu/~jdl/bib/appearance/analytic%20models/schlick94b.pdf\n// [5] \"KHR_materials_clearcoat\"\n//     https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_materials_clearcoat\n\nprecision highp float;\n#define GLSLIFY 1\n\n#include <tonemapping.glsl>\n#include <textures.glsl>\n#include <functions.glsl>\n#include <brdf.glsl>\n#include <punctual.glsl>\n#include <ibl.glsl>\n#include <material_info.glsl>\n\n#ifdef MATERIAL_IRIDESCENCE\n#include <iridescence.glsl>\n#endif\n\nout vec4 g_finalColor;\n\nvoid main()\n{\n    vec4 baseColor = getBaseColor();\n\n#if ALPHAMODE == ALPHAMODE_OPAQUE\n    baseColor.a = 1.0;\n#endif\n\n    vec3 v = normalize(u_Camera - v_Position);\n    NormalInfo normalInfo = getNormalInfo(v);\n    vec3 n = normalInfo.n;\n    vec3 t = normalInfo.t;\n    vec3 b = normalInfo.b;\n\n    float NdotV = clampedDot(n, v);\n    float TdotV = clampedDot(t, v);\n    float BdotV = clampedDot(b, v);\n\n    MaterialInfo materialInfo;\n    materialInfo.baseColor = baseColor.rgb;\n    \n    // The default index of refraction of 1.5 yields a dielectric normal incidence reflectance of 0.04.\n    materialInfo.ior = 1.5;\n    materialInfo.f0 = vec3(0.04);\n    materialInfo.specularWeight = 1.0;\n\n    // If the MR debug output is selected, we have to enforce evaluation of the non-iridescence BRDF functions.\n#if DEBUG == DEBUG_METALLIC_ROUGHNESS\n#undef MATERIAL_IRIDESCENCE\n#endif\n\n#ifdef MATERIAL_IOR\n    materialInfo = getIorInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_SPECULARGLOSSINESS\n    materialInfo = getSpecularGlossinessInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_METALLICROUGHNESS\n    materialInfo = getMetallicRoughnessInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_SHEEN\n    materialInfo = getSheenInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n    materialInfo = getClearCoatInfo(materialInfo, normalInfo);\n#endif\n\n#ifdef MATERIAL_SPECULAR\n    materialInfo = getSpecularInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_TRANSMISSION\n    materialInfo = getTransmissionInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_VOLUME\n    materialInfo = getVolumeInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_IRIDESCENCE\n    materialInfo = getIridescenceInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_ANISOTROPY\n    materialInfo = getAnisotropyInfo(materialInfo, normalInfo);\n#endif\n\n    materialInfo.perceptualRoughness = clamp(materialInfo.perceptualRoughness, 0.0, 1.0);\n    materialInfo.metallic = clamp(materialInfo.metallic, 0.0, 1.0);\n\n    // Roughness is authored as perceptual roughness; as is convention,\n    // convert to material roughness by squaring the perceptual roughness.\n    materialInfo.alphaRoughness = materialInfo.perceptualRoughness * materialInfo.perceptualRoughness;\n\n    // Compute reflectance.\n    float reflectance = max(max(materialInfo.f0.r, materialInfo.f0.g), materialInfo.f0.b);\n\n    // Anything less than 2% is physically impossible and is instead considered to be shadowing. Compare to \"Real-Time-Rendering\" 4th editon on page 325.\n    materialInfo.f90 = vec3(1.0);\n\n    // LIGHTING\n    vec3 f_specular = vec3(0.0);\n    vec3 f_diffuse = vec3(0.0);\n    vec3 f_emissive = vec3(0.0);\n    vec3 f_clearcoat = vec3(0.0);\n    vec3 f_sheen = vec3(0.0);\n    vec3 f_transmission = vec3(0.0);\n\n    float albedoSheenScaling = 1.0;\n\n#ifdef MATERIAL_IRIDESCENCE\n    vec3 iridescenceFresnel = materialInfo.f0;\n    vec3 iridescenceF0 = materialInfo.f0;\n\n    if (materialInfo.iridescenceThickness == 0.0) {\n        materialInfo.iridescenceFactor = 0.0;\n    }\n\n    if (materialInfo.iridescenceFactor > 0.0) {\n        iridescenceFresnel = evalIridescence(1.0, materialInfo.iridescenceIor, NdotV, materialInfo.iridescenceThickness, materialInfo.f0);\n        iridescenceF0 = Schlick_to_F0(iridescenceFresnel, NdotV);\n    }\n#endif\n\n    // Calculate lighting contribution from image based lighting source (IBL)\n#ifdef USE_IBL\n#ifdef MATERIAL_IRIDESCENCE\n    f_specular += getIBLRadianceGGXIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.f0, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.specularWeight);\n    f_diffuse += getIBLRadianceLambertianIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, iridescenceF0, materialInfo.iridescenceFactor, materialInfo.specularWeight);\n#elif defined(MATERIAL_ANISOTROPY)\n    f_specular += getIBLRadianceAnisotropy(n, v, materialInfo.perceptualRoughness, materialInfo.anisotropyStrength, materialInfo.anisotropicB, materialInfo.f0, materialInfo.specularWeight);\n    f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);\n#else\n    f_specular += getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight);\n    f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n    f_clearcoat += getIBLRadianceGGX(materialInfo.clearcoatNormal, v, materialInfo.clearcoatRoughness, materialInfo.clearcoatF0, 1.0);\n#endif\n\n#ifdef MATERIAL_SHEEN\n    f_sheen += getIBLRadianceCharlie(n, v, materialInfo.sheenRoughnessFactor, materialInfo.sheenColorFactor);\n#endif\n#endif\n\n#if defined(MATERIAL_TRANSMISSION) && defined(USE_IBL)\n    f_transmission += getIBLVolumeRefraction(\n        n, v,\n        materialInfo.perceptualRoughness,\n        materialInfo.c_diff, materialInfo.f0, materialInfo.f90,\n        v_Position, u_ModelMatrix, u_ViewMatrix, u_ProjectionMatrix,\n        materialInfo.ior, materialInfo.thickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);\n#endif\n\n    vec3 f_diffuse_ibl = f_diffuse;\n    vec3 f_specular_ibl = f_specular;\n    vec3 f_sheen_ibl = f_sheen;\n    vec3 f_clearcoat_ibl = f_clearcoat;\n    f_diffuse = vec3(0.0);\n    f_specular = vec3(0.0);\n    f_sheen = vec3(0.0);\n    f_clearcoat = vec3(0.0);\n\n#ifdef USE_PUNCTUAL\n    for (int i = 0; i < LIGHT_COUNT; ++i)\n    {\n        Light light = u_Lights[i];\n\n        vec3 pointToLight;\n        if (light.type != LightType_Directional)\n        {\n            pointToLight = light.position - v_Position;\n        }\n        else\n        {\n            pointToLight = -light.direction;\n        }\n\n        // BSTF\n        vec3 l = normalize(pointToLight);   // Direction from surface point to light\n        vec3 h = normalize(l + v);          // Direction of the vector between l and v, called halfway vector\n        float NdotL = clampedDot(n, l);\n        float NdotV = clampedDot(n, v);\n        float NdotH = clampedDot(n, h);\n        float LdotH = clampedDot(l, h);\n        float VdotH = clampedDot(v, h);\n        if (NdotL > 0.0 || NdotV > 0.0)\n        {\n            // Calculation of analytical light\n            // https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB\n            vec3 intensity = getLighIntensity(light, pointToLight);\n#ifdef MATERIAL_IRIDESCENCE\n            f_diffuse += intensity * NdotL *  BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.c_diff, materialInfo.specularWeight, VdotH);\n            f_specular += intensity * NdotL * BRDF_specularGGXIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.alphaRoughness, materialInfo.iridescenceFactor, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);\n#elif defined(MATERIAL_ANISOTROPY)\n            f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, VdotH);\n            f_specular += intensity * NdotL * BRDF_specularGGXAnisotropy(materialInfo.f0, materialInfo.f90, materialInfo.alphaRoughness, materialInfo.anisotropyStrength, n, v, l, h, materialInfo.anisotropicT, materialInfo.anisotropicB);\n#else\n            f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, VdotH);\n            f_specular += intensity * NdotL * BRDF_specularGGX(materialInfo.f0, materialInfo.f90, materialInfo.alphaRoughness, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);\n#endif\n\n#ifdef MATERIAL_SHEEN\n            f_sheen += intensity * getPunctualRadianceSheen(materialInfo.sheenColorFactor, materialInfo.sheenRoughnessFactor, NdotL, NdotV, NdotH);\n            albedoSheenScaling = min(1.0 - max3(materialInfo.sheenColorFactor) * albedoSheenScalingLUT(NdotV, materialInfo.sheenRoughnessFactor),\n                1.0 - max3(materialInfo.sheenColorFactor) * albedoSheenScalingLUT(NdotL, materialInfo.sheenRoughnessFactor));\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n            f_clearcoat += intensity * getPunctualRadianceClearCoat(materialInfo.clearcoatNormal, v, l, h, VdotH,\n                materialInfo.clearcoatF0, materialInfo.clearcoatF90, materialInfo.clearcoatRoughness);\n#endif\n        }\n\n        // BDTF\n#ifdef MATERIAL_TRANSMISSION\n        // If the light ray travels through the geometry, use the point it exits the geometry again.\n        // That will change the angle to the light source, if the material refracts the light ray.\n        vec3 transmissionRay = getVolumeTransmissionRay(n, v, materialInfo.thickness, materialInfo.ior, u_ModelMatrix);\n        pointToLight -= transmissionRay;\n        l = normalize(pointToLight);\n\n        vec3 intensity = getLighIntensity(light, pointToLight);\n        vec3 transmittedLight = intensity * getPunctualRadianceTransmission(n, v, l, materialInfo.alphaRoughness, materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.ior);\n\n#ifdef MATERIAL_VOLUME\n        transmittedLight = applyVolumeAttenuation(transmittedLight, length(transmissionRay), materialInfo.attenuationColor, materialInfo.attenuationDistance);\n#endif\n\n        f_transmission += transmittedLight;\n#endif\n    }\n#endif\n\n    f_emissive = u_EmissiveFactor;\n#ifdef MATERIAL_EMISSIVE_STRENGTH\n    f_emissive *= u_EmissiveStrength;\n#endif\n#ifdef HAS_EMISSIVE_MAP\n    f_emissive *= texture(u_EmissiveSampler, getEmissiveUV()).rgb;\n#endif\n\n    // Layer blending\n\n    float clearcoatFactor = 0.0;\n    vec3 clearcoatFresnel = vec3(0);\n    vec3 diffuse;\n    vec3 specular;\n    vec3 sheen;\n    vec3 clearcoat;\n\n    float ao = 1.0;\n    // Apply optional PBR terms for additional (optional) shading\n#ifdef HAS_OCCLUSION_MAP\n    ao = texture(u_OcclusionSampler,  getOcclusionUV()).r;\n    diffuse = f_diffuse + mix(f_diffuse_ibl, f_diffuse_ibl * ao, u_OcclusionStrength);\n    // apply ambient occlusion to all lighting that is not punctual\n    specular = f_specular + mix(f_specular_ibl, f_specular_ibl * ao, u_OcclusionStrength);\n    sheen = f_sheen + mix(f_sheen_ibl, f_sheen_ibl * ao, u_OcclusionStrength);\n    clearcoat = f_clearcoat + mix(f_clearcoat_ibl, f_clearcoat_ibl * ao, u_OcclusionStrength);\n#else\n    diffuse = f_diffuse_ibl + f_diffuse;\n    specular = f_specular_ibl + f_specular;\n    sheen = f_sheen_ibl + f_sheen;\n    clearcoat = f_clearcoat_ibl + f_clearcoat;\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n    clearcoatFactor = materialInfo.clearcoatFactor;\n    clearcoatFresnel = F_Schlick(materialInfo.clearcoatF0, materialInfo.clearcoatF90, clampedDot(materialInfo.clearcoatNormal, v));\n    clearcoat *= clearcoatFactor;\n#endif\n\n#ifdef MATERIAL_TRANSMISSION\n    diffuse = mix(diffuse, f_transmission, materialInfo.transmissionFactor);\n#endif\n\n    vec3 color = vec3(0);\n#ifdef MATERIAL_UNLIT\n    color = baseColor.rgb;\n#else\n    color = f_emissive + diffuse + specular;\n    color = sheen + color * albedoSheenScaling;\n    color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + clearcoat;\n#endif\n\n#if DEBUG == DEBUG_NONE\n\n#if ALPHAMODE == ALPHAMODE_MASK\n    // Late discard to avoid samplig artifacts. See https://github.com/KhronosGroup/glTF-Sample-Viewer/issues/267\n    if (baseColor.a < u_AlphaCutoff)\n    {\n        discard;\n    }\n    baseColor.a = 1.0;\n#endif\n\n    // add highlight color\n    color.rgb += u_HighlightColor;\n\n#ifdef LINEAR_OUTPUT\n    g_finalColor = vec4(color.rgb, baseColor.a);\n#else\n    g_finalColor = vec4(toneMap(color), baseColor.a);\n#endif\n\n#else\n    // In case of missing data for a debug view, render a checkerboard.\n    g_finalColor = vec4(1.0);\n    {\n        float frequency = 0.02;\n        float gray = 0.9;\n\n        vec2 v1 = step(0.5, fract(frequency * gl_FragCoord.xy));\n        vec2 v2 = step(0.5, vec2(1.0) - fract(frequency * gl_FragCoord.xy));\n        g_finalColor.rgb *= gray + v1.x * v1.y + v2.x * v2.y;\n    }\n#endif\n\n    // Debug views:\n\n    // Generic:\n#if DEBUG == DEBUG_UV_0 && defined(HAS_TEXCOORD_0_VEC2)\n    g_finalColor.rgb = vec3(v_texcoord_0, 0);\n#endif\n#if DEBUG == DEBUG_UV_1 && defined(HAS_TEXCOORD_1_VEC2)\n    g_finalColor.rgb = vec3(v_texcoord_1, 0);\n#endif\n#if DEBUG == DEBUG_NORMAL_TEXTURE && defined(HAS_NORMAL_MAP)\n    g_finalColor.rgb = (normalInfo.ntex + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_NORMAL_SHADING\n    g_finalColor.rgb = (n + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_NORMAL_GEOMETRY\n    g_finalColor.rgb = (normalInfo.ng + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_TANGENT\n    g_finalColor.rgb = (normalInfo.t + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_BITANGENT\n    g_finalColor.rgb = (normalInfo.b + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_ALPHA\n    g_finalColor.rgb = vec3(baseColor.a);\n#endif\n#if DEBUG == DEBUG_OCCLUSION && defined(HAS_OCCLUSION_MAP)\n    g_finalColor.rgb = vec3(ao);\n#endif\n#if DEBUG == DEBUG_EMISSIVE\n    g_finalColor.rgb = linearTosRGB(f_emissive);\n#endif\n\n    // MR:\n#ifdef MATERIAL_METALLICROUGHNESS\n#if DEBUG == DEBUG_METALLIC_ROUGHNESS\n    g_finalColor.rgb = linearTosRGB(f_diffuse + f_diffuse_ibl + f_specular);\n#endif\n#if DEBUG == DEBUG_METALLIC\n    g_finalColor.rgb = vec3(materialInfo.metallic);\n#endif\n#if DEBUG == DEBUG_ROUGHNESS\n    g_finalColor.rgb = vec3(materialInfo.perceptualRoughness);\n#endif\n#if DEBUG == DEBUG_BASE_COLOR\n    g_finalColor.rgb = linearTosRGB(materialInfo.baseColor);\n#endif\n#endif\n\n    // Clearcoat:\n#ifdef MATERIAL_CLEARCOAT\n#if DEBUG == DEBUG_CLEARCOAT\n    g_finalColor.rgb = linearTosRGB(f_clearcoat + f_clearcoat_ibl);\n#endif\n#if DEBUG == DEBUG_CLEARCOAT_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.clearcoatFactor);\n#endif\n#if DEBUG == DEBUG_CLEARCOAT_ROUGHNESS\n    g_finalColor.rgb = vec3(materialInfo.clearcoatRoughness);\n#endif\n#if DEBUG == DEBUG_CLEARCOAT_NORMAL\n    g_finalColor.rgb = (materialInfo.clearcoatNormal + vec3(1)) / 2.0;\n#endif\n#endif\n\n    // Sheen:\n#ifdef MATERIAL_SHEEN\n#if DEBUG == DEBUG_SHEEN\n    g_finalColor.rgb = linearTosRGB(f_sheen + f_sheen_ibl);\n#endif\n#if DEBUG == DEBUG_SHEEN_COLOR\n    g_finalColor.rgb = materialInfo.sheenColorFactor;\n#endif\n#if DEBUG == DEBUG_SHEEN_ROUGHNESS\n    g_finalColor.rgb = vec3(materialInfo.sheenRoughnessFactor);\n#endif\n#endif\n\n    // Specular:\n#ifdef MATERIAL_SPECULAR\n#if DEBUG == DEBUG_SPECULAR\n    g_finalColor.rgb = linearTosRGB(f_specular + f_specular_ibl);\n#endif\n#if DEBUG == DEBUG_SPECULAR_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.specularWeight);\n#endif\n\n#if DEBUG == DEBUG_SPECULAR_COLOR\nvec3 specularTexture = vec3(1.0);\n#ifdef HAS_SPECULAR_COLOR_MAP\n    specularTexture.rgb = texture(u_SpecularColorSampler, getSpecularColorUV()).rgb;\n#endif\n    g_finalColor.rgb = u_KHR_materials_specular_specularColorFactor * specularTexture.rgb;\n#endif\n#endif\n\n    // Transmission, Volume:\n#ifdef MATERIAL_TRANSMISSION\n#if DEBUG == DEBUG_TRANSMISSION_VOLUME\n    g_finalColor.rgb = linearTosRGB(f_transmission);\n#endif\n#if DEBUG == DEBUG_TRANSMISSION_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.transmissionFactor);\n#endif\n#endif\n#ifdef MATERIAL_VOLUME\n#if DEBUG == DEBUG_VOLUME_THICKNESS\n    g_finalColor.rgb = vec3(materialInfo.thickness / u_ThicknessFactor);\n#endif\n#endif\n\n    // Iridescence:\n#ifdef MATERIAL_IRIDESCENCE\n#if DEBUG == DEBUG_IRIDESCENCE\n    g_finalColor.rgb = iridescenceFresnel;\n#endif\n#if DEBUG == DEBUG_IRIDESCENCE_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.iridescenceFactor);\n#endif\n#if DEBUG == DEBUG_IRIDESCENCE_THICKNESS\n    g_finalColor.rgb = vec3(materialInfo.iridescenceThickness / 1200.0);\n#endif\n#endif\n\n    // Anisotropy:\n#ifdef MATERIAL_ANISOTROPY\n#if DEBUG == DEBUG_ANISOTROPIC_STRENGTH\n    g_finalColor.rgb = vec3(materialInfo.anisotropyStrength);\n#endif\n#if DEBUG == DEBUG_ANISOTROPIC_DIRECTION\n    vec2 direction = vec2(1.0, 0.0);\n#ifdef HAS_ANISOTROPY_MAP\n    direction = texture(u_AnisotropySampler, getAnisotropyUV()).xy;\n    direction = direction * 2.0 - vec2(1.0); // [0, 1] -> [-1, 1]\n#endif\n    vec2 directionRotation = u_Anisotropy.xy; // cos(theta), sin(theta)\n    mat2 rotationMatrix = mat2(directionRotation.x, directionRotation.y, -directionRotation.y, directionRotation.x);\n    direction = (direction + vec2(1.0)) * 0.5; // [-1, 1] -> [0, 1]\n\n    g_finalColor.rgb = vec3(direction, 0.0);\n#endif\n#endif\n}\n"; // eslint-disable-line
+var pbrShader = "//\n// This fragment shader defines a reference implementation for Physically Based Shading of\n// a microfacet surface material defined by a glTF model.\n//\n// References:\n// [1] Real Shading in Unreal Engine 4\n//     http://blog.selfshadow.com/publications/s2013-shading-course/karis/s2013_pbs_epic_notes_v2.pdf\n// [2] Physically Based Shading at Disney\n//     http://blog.selfshadow.com/publications/s2012-shading-course/burley/s2012_pbs_disney_brdf_notes_v3.pdf\n// [3] README.md - Environment Maps\n//     https://github.com/KhronosGroup/glTF-WebGL-PBR/#environment-maps\n// [4] \"An Inexpensive BRDF Model for Physically based Rendering\" by Christophe Schlick\n//     https://www.cs.virginia.edu/~jdl/bib/appearance/analytic%20models/schlick94b.pdf\n// [5] \"KHR_materials_clearcoat\"\n//     https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_materials_clearcoat\n\nprecision highp float;\n#define GLSLIFY 1\n\n#include <tonemapping.glsl>\n#include <textures.glsl>\n#include <functions.glsl>\n#include <brdf.glsl>\n#include <punctual.glsl>\n#include <ibl.glsl>\n#include <material_info.glsl>\n\n#ifdef MATERIAL_IRIDESCENCE\n#include <iridescence.glsl>\n#endif\n\nout vec4 g_finalColor;\n\nvoid main()\n{\n    vec4 baseColor = getBaseColor();\n\n#if ALPHAMODE == ALPHAMODE_OPAQUE\n    baseColor.a = 1.0;\n#endif\n\n    vec3 v = normalize(u_Camera - v_Position);\n    NormalInfo normalInfo = getNormalInfo(v);\n    vec3 n = normalInfo.n;\n    vec3 t = normalInfo.t;\n    vec3 b = normalInfo.b;\n\n    float NdotV = clampedDot(n, v);\n    float TdotV = clampedDot(t, v);\n    float BdotV = clampedDot(b, v);\n\n    MaterialInfo materialInfo;\n    materialInfo.baseColor = baseColor.rgb;\n    \n    // The default index of refraction of 1.5 yields a dielectric normal incidence reflectance of 0.04.\n    materialInfo.ior = 1.5;\n    materialInfo.f0 = vec3(0.04);\n    materialInfo.specularWeight = 1.0;\n\n    // If the MR debug output is selected, we have to enforce evaluation of the non-iridescence BRDF functions.\n#if DEBUG == DEBUG_METALLIC_ROUGHNESS\n#undef MATERIAL_IRIDESCENCE\n#endif\n\n#ifdef MATERIAL_IOR\n    materialInfo = getIorInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_SPECULARGLOSSINESS\n    materialInfo = getSpecularGlossinessInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_METALLICROUGHNESS\n    materialInfo = getMetallicRoughnessInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_SHEEN\n    materialInfo = getSheenInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n    materialInfo = getClearCoatInfo(materialInfo, normalInfo);\n#endif\n\n#ifdef MATERIAL_SPECULAR\n    materialInfo = getSpecularInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_TRANSMISSION\n    materialInfo = getTransmissionInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_VOLUME\n    materialInfo = getVolumeInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_IRIDESCENCE\n    materialInfo = getIridescenceInfo(materialInfo);\n#endif\n\n#ifdef MATERIAL_ANISOTROPY\n    materialInfo = getAnisotropyInfo(materialInfo, normalInfo);\n#endif\n\n    materialInfo.perceptualRoughness = clamp(materialInfo.perceptualRoughness, 0.0, 1.0);\n    materialInfo.metallic = clamp(materialInfo.metallic, 0.0, 1.0);\n\n    // Roughness is authored as perceptual roughness; as is convention,\n    // convert to material roughness by squaring the perceptual roughness.\n    materialInfo.alphaRoughness = materialInfo.perceptualRoughness * materialInfo.perceptualRoughness;\n\n    // Compute reflectance.\n    float reflectance = max(max(materialInfo.f0.r, materialInfo.f0.g), materialInfo.f0.b);\n\n    // Anything less than 2% is physically impossible and is instead considered to be shadowing. Compare to \"Real-Time-Rendering\" 4th editon on page 325.\n    materialInfo.f90 = vec3(1.0);\n\n    // LIGHTING\n    vec3 f_specular = vec3(0.0);\n    vec3 f_diffuse = vec3(0.0);\n    vec3 f_emissive = vec3(0.0);\n    vec3 f_clearcoat = vec3(0.0);\n    vec3 f_sheen = vec3(0.0);\n    vec3 f_transmission = vec3(0.0);\n\n    float albedoSheenScaling = 1.0;\n\n#ifdef MATERIAL_IRIDESCENCE\n    vec3 iridescenceFresnel = evalIridescence(1.0, materialInfo.iridescenceIor, NdotV, materialInfo.iridescenceThickness, materialInfo.f0);\n    vec3 iridescenceF0 = Schlick_to_F0(iridescenceFresnel, NdotV);\n\n    if (materialInfo.iridescenceThickness == 0.0) {\n        materialInfo.iridescenceFactor = 0.0;\n    }\n#endif\n\n    // Calculate lighting contribution from image based lighting source (IBL)\n#ifdef USE_IBL\n#ifdef MATERIAL_IRIDESCENCE\n    f_specular += getIBLRadianceGGXIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.f0, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.specularWeight);\n    f_diffuse += getIBLRadianceLambertianIridescence(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, iridescenceF0, materialInfo.iridescenceFactor, materialInfo.specularWeight);\n#elif defined(MATERIAL_ANISOTROPY)\n    f_specular += getIBLRadianceAnisotropy(n, v, materialInfo.perceptualRoughness, materialInfo.anisotropyStrength, materialInfo.anisotropicB, materialInfo.f0, materialInfo.specularWeight);\n    f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);\n#else\n    f_specular += getIBLRadianceGGX(n, v, materialInfo.perceptualRoughness, materialInfo.f0, materialInfo.specularWeight);\n    f_diffuse += getIBLRadianceLambertian(n, v, materialInfo.perceptualRoughness, materialInfo.c_diff, materialInfo.f0, materialInfo.specularWeight);\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n    f_clearcoat += getIBLRadianceGGX(materialInfo.clearcoatNormal, v, materialInfo.clearcoatRoughness, materialInfo.clearcoatF0, 1.0);\n#endif\n\n#ifdef MATERIAL_SHEEN\n    f_sheen += getIBLRadianceCharlie(n, v, materialInfo.sheenRoughnessFactor, materialInfo.sheenColorFactor);\n#endif\n#endif\n\n#if defined(MATERIAL_TRANSMISSION) && defined(USE_IBL)\n    f_transmission += getIBLVolumeRefraction(\n        n, v,\n        materialInfo.perceptualRoughness,\n        materialInfo.c_diff, materialInfo.f0, materialInfo.f90,\n        v_Position, u_ModelMatrix, u_ViewMatrix, u_ProjectionMatrix,\n        materialInfo.ior, materialInfo.thickness, materialInfo.attenuationColor, materialInfo.attenuationDistance);\n#endif\n\n    vec3 f_diffuse_ibl = f_diffuse;\n    vec3 f_specular_ibl = f_specular;\n    vec3 f_sheen_ibl = f_sheen;\n    vec3 f_clearcoat_ibl = f_clearcoat;\n    f_diffuse = vec3(0.0);\n    f_specular = vec3(0.0);\n    f_sheen = vec3(0.0);\n    f_clearcoat = vec3(0.0);\n\n#ifdef USE_PUNCTUAL\n    for (int i = 0; i < LIGHT_COUNT; ++i)\n    {\n        Light light = u_Lights[i];\n\n        vec3 pointToLight;\n        if (light.type != LightType_Directional)\n        {\n            pointToLight = light.position - v_Position;\n        }\n        else\n        {\n            pointToLight = -light.direction;\n        }\n\n        // BSTF\n        vec3 l = normalize(pointToLight);   // Direction from surface point to light\n        vec3 h = normalize(l + v);          // Direction of the vector between l and v, called halfway vector\n        float NdotL = clampedDot(n, l);\n        float NdotV = clampedDot(n, v);\n        float NdotH = clampedDot(n, h);\n        float LdotH = clampedDot(l, h);\n        float VdotH = clampedDot(v, h);\n        if (NdotL > 0.0 || NdotV > 0.0)\n        {\n            // Calculation of analytical light\n            // https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB\n            vec3 intensity = getLighIntensity(light, pointToLight);\n#ifdef MATERIAL_IRIDESCENCE\n            f_diffuse += intensity * NdotL *  BRDF_lambertianIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.iridescenceFactor, materialInfo.c_diff, materialInfo.specularWeight, VdotH);\n            f_specular += intensity * NdotL * BRDF_specularGGXIridescence(materialInfo.f0, materialInfo.f90, iridescenceFresnel, materialInfo.alphaRoughness, materialInfo.iridescenceFactor, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);\n#elif defined(MATERIAL_ANISOTROPY)\n            f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, VdotH);\n            f_specular += intensity * NdotL * BRDF_specularGGXAnisotropy(materialInfo.f0, materialInfo.f90, materialInfo.alphaRoughness, materialInfo.anisotropyStrength, n, v, l, h, materialInfo.anisotropicT, materialInfo.anisotropicB);\n#else\n            f_diffuse += intensity * NdotL *  BRDF_lambertian(materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.specularWeight, VdotH);\n            f_specular += intensity * NdotL * BRDF_specularGGX(materialInfo.f0, materialInfo.f90, materialInfo.alphaRoughness, materialInfo.specularWeight, VdotH, NdotL, NdotV, NdotH);\n#endif\n\n#ifdef MATERIAL_SHEEN\n            f_sheen += intensity * getPunctualRadianceSheen(materialInfo.sheenColorFactor, materialInfo.sheenRoughnessFactor, NdotL, NdotV, NdotH);\n            albedoSheenScaling = min(1.0 - max3(materialInfo.sheenColorFactor) * albedoSheenScalingLUT(NdotV, materialInfo.sheenRoughnessFactor),\n                1.0 - max3(materialInfo.sheenColorFactor) * albedoSheenScalingLUT(NdotL, materialInfo.sheenRoughnessFactor));\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n            f_clearcoat += intensity * getPunctualRadianceClearCoat(materialInfo.clearcoatNormal, v, l, h, VdotH,\n                materialInfo.clearcoatF0, materialInfo.clearcoatF90, materialInfo.clearcoatRoughness);\n#endif\n        }\n\n        // BDTF\n#ifdef MATERIAL_TRANSMISSION\n        // If the light ray travels through the geometry, use the point it exits the geometry again.\n        // That will change the angle to the light source, if the material refracts the light ray.\n        vec3 transmissionRay = getVolumeTransmissionRay(n, v, materialInfo.thickness, materialInfo.ior, u_ModelMatrix);\n        pointToLight -= transmissionRay;\n        l = normalize(pointToLight);\n\n        vec3 intensity = getLighIntensity(light, pointToLight);\n        vec3 transmittedLight = intensity * getPunctualRadianceTransmission(n, v, l, materialInfo.alphaRoughness, materialInfo.f0, materialInfo.f90, materialInfo.c_diff, materialInfo.ior);\n\n#ifdef MATERIAL_VOLUME\n        transmittedLight = applyVolumeAttenuation(transmittedLight, length(transmissionRay), materialInfo.attenuationColor, materialInfo.attenuationDistance);\n#endif\n\n        f_transmission += transmittedLight;\n#endif\n    }\n#endif\n\n    f_emissive = u_EmissiveFactor;\n#ifdef MATERIAL_EMISSIVE_STRENGTH\n    f_emissive *= u_EmissiveStrength;\n#endif\n#ifdef HAS_EMISSIVE_MAP\n    f_emissive *= texture(u_EmissiveSampler, getEmissiveUV()).rgb;\n#endif\n\n    // Layer blending\n\n    float clearcoatFactor = 0.0;\n    vec3 clearcoatFresnel = vec3(0);\n    vec3 diffuse;\n    vec3 specular;\n    vec3 sheen;\n    vec3 clearcoat;\n\n    float ao = 1.0;\n    // Apply optional PBR terms for additional (optional) shading\n#ifdef HAS_OCCLUSION_MAP\n    ao = texture(u_OcclusionSampler,  getOcclusionUV()).r;\n    diffuse = f_diffuse + mix(f_diffuse_ibl, f_diffuse_ibl * ao, u_OcclusionStrength);\n    // apply ambient occlusion to all lighting that is not punctual\n    specular = f_specular + mix(f_specular_ibl, f_specular_ibl * ao, u_OcclusionStrength);\n    sheen = f_sheen + mix(f_sheen_ibl, f_sheen_ibl * ao, u_OcclusionStrength);\n    clearcoat = f_clearcoat + mix(f_clearcoat_ibl, f_clearcoat_ibl * ao, u_OcclusionStrength);\n#else\n    diffuse = f_diffuse_ibl + f_diffuse;\n    specular = f_specular_ibl + f_specular;\n    sheen = f_sheen_ibl + f_sheen;\n    clearcoat = f_clearcoat_ibl + f_clearcoat;\n#endif\n\n#ifdef MATERIAL_CLEARCOAT\n    clearcoatFactor = materialInfo.clearcoatFactor;\n    clearcoatFresnel = F_Schlick(materialInfo.clearcoatF0, materialInfo.clearcoatF90, clampedDot(materialInfo.clearcoatNormal, v));\n    clearcoat *= clearcoatFactor;\n#endif\n\n#ifdef MATERIAL_TRANSMISSION\n    diffuse = mix(diffuse, f_transmission, materialInfo.transmissionFactor);\n#endif\n\n    vec3 color = vec3(0);\n#ifdef MATERIAL_UNLIT\n    color = baseColor.rgb;\n#else\n    color = f_emissive + diffuse + specular;\n    color = sheen + color * albedoSheenScaling;\n    color = color * (1.0 - clearcoatFactor * clearcoatFresnel) + clearcoat;\n#endif\n\n#if DEBUG == DEBUG_NONE\n\n#if ALPHAMODE == ALPHAMODE_MASK\n    // Late discard to avoid samplig artifacts. See https://github.com/KhronosGroup/glTF-Sample-Viewer/issues/267\n    if (baseColor.a < u_AlphaCutoff)\n    {\n        discard;\n    }\n    baseColor.a = 1.0;\n#endif\n\n    // add highlight color\n    color.rgb += u_HighlightColor;\n\n#ifdef LINEAR_OUTPUT\n    g_finalColor = vec4(color.rgb, baseColor.a);\n#else\n    g_finalColor = vec4(toneMap(color), baseColor.a);\n#endif\n\n#else\n    // In case of missing data for a debug view, render a checkerboard.\n    g_finalColor = vec4(1.0);\n    {\n        float frequency = 0.02;\n        float gray = 0.9;\n\n        vec2 v1 = step(0.5, fract(frequency * gl_FragCoord.xy));\n        vec2 v2 = step(0.5, vec2(1.0) - fract(frequency * gl_FragCoord.xy));\n        g_finalColor.rgb *= gray + v1.x * v1.y + v2.x * v2.y;\n    }\n#endif\n\n    // Debug views:\n\n    // Generic:\n#if DEBUG == DEBUG_UV_0 && defined(HAS_TEXCOORD_0_VEC2)\n    g_finalColor.rgb = vec3(v_texcoord_0, 0);\n#endif\n#if DEBUG == DEBUG_UV_1 && defined(HAS_TEXCOORD_1_VEC2)\n    g_finalColor.rgb = vec3(v_texcoord_1, 0);\n#endif\n#if DEBUG == DEBUG_NORMAL_TEXTURE && defined(HAS_NORMAL_MAP)\n    g_finalColor.rgb = (normalInfo.ntex + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_NORMAL_SHADING\n    g_finalColor.rgb = (n + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_NORMAL_GEOMETRY\n    g_finalColor.rgb = (normalInfo.ng + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_TANGENT\n    g_finalColor.rgb = (normalInfo.t + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_BITANGENT\n    g_finalColor.rgb = (normalInfo.b + 1.0) / 2.0;\n#endif\n#if DEBUG == DEBUG_ALPHA\n    g_finalColor.rgb = vec3(baseColor.a);\n#endif\n#if DEBUG == DEBUG_OCCLUSION && defined(HAS_OCCLUSION_MAP)\n    g_finalColor.rgb = vec3(ao);\n#endif\n#if DEBUG == DEBUG_EMISSIVE\n    g_finalColor.rgb = linearTosRGB(f_emissive);\n#endif\n\n    // MR:\n#ifdef MATERIAL_METALLICROUGHNESS\n#if DEBUG == DEBUG_METALLIC_ROUGHNESS\n    g_finalColor.rgb = linearTosRGB(f_diffuse + f_diffuse_ibl + f_specular);\n#endif\n#if DEBUG == DEBUG_METALLIC\n    g_finalColor.rgb = vec3(materialInfo.metallic);\n#endif\n#if DEBUG == DEBUG_ROUGHNESS\n    g_finalColor.rgb = vec3(materialInfo.perceptualRoughness);\n#endif\n#if DEBUG == DEBUG_BASE_COLOR\n    g_finalColor.rgb = linearTosRGB(materialInfo.baseColor);\n#endif\n#endif\n\n    // Clearcoat:\n#ifdef MATERIAL_CLEARCOAT\n#if DEBUG == DEBUG_CLEARCOAT\n    g_finalColor.rgb = linearTosRGB(f_clearcoat + f_clearcoat_ibl);\n#endif\n#if DEBUG == DEBUG_CLEARCOAT_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.clearcoatFactor);\n#endif\n#if DEBUG == DEBUG_CLEARCOAT_ROUGHNESS\n    g_finalColor.rgb = vec3(materialInfo.clearcoatRoughness);\n#endif\n#if DEBUG == DEBUG_CLEARCOAT_NORMAL\n    g_finalColor.rgb = (materialInfo.clearcoatNormal + vec3(1)) / 2.0;\n#endif\n#endif\n\n    // Sheen:\n#ifdef MATERIAL_SHEEN\n#if DEBUG == DEBUG_SHEEN\n    g_finalColor.rgb = linearTosRGB(f_sheen + f_sheen_ibl);\n#endif\n#if DEBUG == DEBUG_SHEEN_COLOR\n    g_finalColor.rgb = materialInfo.sheenColorFactor;\n#endif\n#if DEBUG == DEBUG_SHEEN_ROUGHNESS\n    g_finalColor.rgb = vec3(materialInfo.sheenRoughnessFactor);\n#endif\n#endif\n\n    // Specular:\n#ifdef MATERIAL_SPECULAR\n#if DEBUG == DEBUG_SPECULAR\n    g_finalColor.rgb = linearTosRGB(f_specular + f_specular_ibl);\n#endif\n#if DEBUG == DEBUG_SPECULAR_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.specularWeight);\n#endif\n\n#if DEBUG == DEBUG_SPECULAR_COLOR\nvec3 specularTexture = vec3(1.0);\n#ifdef HAS_SPECULAR_COLOR_MAP\n    specularTexture.rgb = texture(u_SpecularColorSampler, getSpecularColorUV()).rgb;\n#endif\n    g_finalColor.rgb = u_KHR_materials_specular_specularColorFactor * specularTexture.rgb;\n#endif\n#endif\n\n    // Transmission, Volume:\n#ifdef MATERIAL_TRANSMISSION\n#if DEBUG == DEBUG_TRANSMISSION_VOLUME\n    g_finalColor.rgb = linearTosRGB(f_transmission);\n#endif\n#if DEBUG == DEBUG_TRANSMISSION_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.transmissionFactor);\n#endif\n#endif\n#ifdef MATERIAL_VOLUME\n#if DEBUG == DEBUG_VOLUME_THICKNESS\n    g_finalColor.rgb = vec3(materialInfo.thickness / u_ThicknessFactor);\n#endif\n#endif\n\n    // Iridescence:\n#ifdef MATERIAL_IRIDESCENCE\n#if DEBUG == DEBUG_IRIDESCENCE\n    g_finalColor.rgb = iridescenceFresnel;\n#endif\n#if DEBUG == DEBUG_IRIDESCENCE_FACTOR\n    g_finalColor.rgb = vec3(materialInfo.iridescenceFactor);\n#endif\n#if DEBUG == DEBUG_IRIDESCENCE_THICKNESS\n    g_finalColor.rgb = vec3(materialInfo.iridescenceThickness / 1200.0);\n#endif\n#endif\n\n    // Anisotropy:\n#ifdef MATERIAL_ANISOTROPY\n#if DEBUG == DEBUG_ANISOTROPIC_STRENGTH\n    g_finalColor.rgb = vec3(materialInfo.anisotropyStrength);\n#endif\n#if DEBUG == DEBUG_ANISOTROPIC_DIRECTION\n    vec2 direction = vec2(1.0, 0.0);\n#ifdef HAS_ANISOTROPY_MAP\n    direction = texture(u_AnisotropySampler, getAnisotropyUV()).xy;\n    direction = direction * 2.0 - vec2(1.0); // [0, 1] -> [-1, 1]\n#endif\n    vec2 directionRotation = u_Anisotropy.xy; // cos(theta), sin(theta)\n    mat2 rotationMatrix = mat2(directionRotation.x, directionRotation.y, -directionRotation.y, directionRotation.x);\n    direction = (direction + vec2(1.0)) * 0.5; // [-1, 1] -> [0, 1]\n\n    g_finalColor.rgb = vec3(direction, 0.0);\n#endif\n#endif\n}\n"; // eslint-disable-line
 
 var brdfShader = "#define GLSLIFY 1\n//\n// Fresnel\n//\n// http://graphicrants.blogspot.com/2013/08/specular-brdf-reference.html\n// https://github.com/wdas/brdf/tree/master/src/brdfs\n// https://google.github.io/filament/Filament.md.html\n//\n\n// The following equation models the Fresnel reflectance term of the spec equation (aka F())\n// Implementation of fresnel from [4], Equation 15\nvec3 F_Schlick(vec3 f0, vec3 f90, float VdotH)\n{\n    return f0 + (f90 - f0) * pow(clamp(1.0 - VdotH, 0.0, 1.0), 5.0);\n}\n\nfloat F_Schlick(float f0, float f90, float VdotH)\n{\n    float x = clamp(1.0 - VdotH, 0.0, 1.0);\n    float x2 = x * x;\n    float x5 = x * x2 * x2;\n    return f0 + (f90 - f0) * x5;\n}\n\nfloat F_Schlick(float f0, float VdotH)\n{\n    float f90 = 1.0; //clamp(50.0 * f0, 0.0, 1.0);\n    return F_Schlick(f0, f90, VdotH);\n}\n\nvec3 F_Schlick(vec3 f0, float f90, float VdotH)\n{\n    float x = clamp(1.0 - VdotH, 0.0, 1.0);\n    float x2 = x * x;\n    float x5 = x * x2 * x2;\n    return f0 + (f90 - f0) * x5;\n}\n\nvec3 F_Schlick(vec3 f0, float VdotH)\n{\n    float f90 = 1.0; //clamp(dot(f0, vec3(50.0 * 0.33)), 0.0, 1.0);\n    return F_Schlick(f0, f90, VdotH);\n}\n\nvec3 Schlick_to_F0(vec3 f, vec3 f90, float VdotH) {\n    float x = clamp(1.0 - VdotH, 0.0, 1.0);\n    float x2 = x * x;\n    float x5 = clamp(x * x2 * x2, 0.0, 0.9999);\n\n    return (f - f90 * x5) / (1.0 - x5);\n}\n\nfloat Schlick_to_F0(float f, float f90, float VdotH) {\n    float x = clamp(1.0 - VdotH, 0.0, 1.0);\n    float x2 = x * x;\n    float x5 = clamp(x * x2 * x2, 0.0, 0.9999);\n\n    return (f - f90 * x5) / (1.0 - x5);\n}\n\nvec3 Schlick_to_F0(vec3 f, float VdotH) {\n    return Schlick_to_F0(f, vec3(1.0), VdotH);\n}\n\nfloat Schlick_to_F0(float f, float VdotH) {\n    return Schlick_to_F0(f, 1.0, VdotH);\n}\n\n// Smith Joint GGX\n// Note: Vis = G / (4 * NdotL * NdotV)\n// see Eric Heitz. 2014. Understanding the Masking-Shadowing Function in Microfacet-Based BRDFs. Journal of Computer Graphics Techniques, 3\n// see Real-Time Rendering. Page 331 to 336.\n// see https://google.github.io/filament/Filament.md.html#materialsystem/specularbrdf/geometricshadowing(specularg)\nfloat V_GGX(float NdotL, float NdotV, float alphaRoughness)\n{\n    float alphaRoughnessSq = alphaRoughness * alphaRoughness;\n\n    float GGXV = NdotL * sqrt(NdotV * NdotV * (1.0 - alphaRoughnessSq) + alphaRoughnessSq);\n    float GGXL = NdotV * sqrt(NdotL * NdotL * (1.0 - alphaRoughnessSq) + alphaRoughnessSq);\n\n    float GGX = GGXV + GGXL;\n    if (GGX > 0.0)\n    {\n        return 0.5 / GGX;\n    }\n    return 0.0;\n}\n\n// The following equation(s) model the distribution of microfacet normals across the area being drawn (aka D())\n// Implementation from \"Average Irregularity Representation of a Roughened Surface for Ray Reflection\" by T. S. Trowbridge, and K. P. Reitz\n// Follows the distribution function recommended in the SIGGRAPH 2013 course notes from EPIC Games [1], Equation 3.\nfloat D_GGX(float NdotH, float alphaRoughness)\n{\n    float alphaRoughnessSq = alphaRoughness * alphaRoughness;\n    float f = (NdotH * NdotH) * (alphaRoughnessSq - 1.0) + 1.0;\n    return alphaRoughnessSq / (M_PI * f * f);\n}\n\nfloat lambdaSheenNumericHelper(float x, float alphaG)\n{\n    float oneMinusAlphaSq = (1.0 - alphaG) * (1.0 - alphaG);\n    float a = mix(21.5473, 25.3245, oneMinusAlphaSq);\n    float b = mix(3.82987, 3.32435, oneMinusAlphaSq);\n    float c = mix(0.19823, 0.16801, oneMinusAlphaSq);\n    float d = mix(-1.97760, -1.27393, oneMinusAlphaSq);\n    float e = mix(-4.32054, -4.85967, oneMinusAlphaSq);\n    return a / (1.0 + b * pow(x, c)) + d * x + e;\n}\n\nfloat lambdaSheen(float cosTheta, float alphaG)\n{\n    if (abs(cosTheta) < 0.5)\n    {\n        return exp(lambdaSheenNumericHelper(cosTheta, alphaG));\n    }\n    else\n    {\n        return exp(2.0 * lambdaSheenNumericHelper(0.5, alphaG) - lambdaSheenNumericHelper(1.0 - cosTheta, alphaG));\n    }\n}\n\nfloat V_Sheen(float NdotL, float NdotV, float sheenRoughness)\n{\n    sheenRoughness = max(sheenRoughness, 0.000001); //clamp (0,1]\n    float alphaG = sheenRoughness * sheenRoughness;\n\n    return clamp(1.0 / ((1.0 + lambdaSheen(NdotV, alphaG) + lambdaSheen(NdotL, alphaG)) *\n        (4.0 * NdotV * NdotL)), 0.0, 1.0);\n}\n\n//Sheen implementation-------------------------------------------------------------------------------------\n// See  https://github.com/sebavan/glTF/tree/KHR_materials_sheen/extensions/2.0/Khronos/KHR_materials_sheen\n\n// Estevez and Kulla http://www.aconty.com/pdf/s2017_pbs_imageworks_sheen.pdf\nfloat D_Charlie(float sheenRoughness, float NdotH)\n{\n    sheenRoughness = max(sheenRoughness, 0.000001); //clamp (0,1]\n    float alphaG = sheenRoughness * sheenRoughness;\n    float invR = 1.0 / alphaG;\n    float cos2h = NdotH * NdotH;\n    float sin2h = 1.0 - cos2h;\n    return (2.0 + invR) * pow(sin2h, invR * 0.5) / (2.0 * M_PI);\n}\n\n//https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB\nvec3 BRDF_lambertian(vec3 f0, vec3 f90, vec3 diffuseColor, float specularWeight, float VdotH)\n{\n    // see https://seblagarde.wordpress.com/2012/01/08/pi-or-not-to-pi-in-game-lighting-equation/\n    return (1.0 - specularWeight * F_Schlick(f0, f90, VdotH)) * (diffuseColor / M_PI);\n}\n\n#ifdef MATERIAL_IRIDESCENCE\n//https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB\nvec3 BRDF_lambertianIridescence(vec3 f0, vec3 f90, vec3 iridescenceFresnel, float iridescenceFactor, vec3 diffuseColor, float specularWeight, float VdotH)\n{\n    // Use the maximum component of the iridescence Fresnel color\n    // Maximum is used instead of the RGB value to not get inverse colors for the diffuse BRDF\n    vec3 iridescenceFresnelMax = vec3(max(max(iridescenceFresnel.r, iridescenceFresnel.g), iridescenceFresnel.b));\n\n    vec3 schlickFresnel = F_Schlick(f0, f90, VdotH);\n\n    // Blend default specular Fresnel with iridescence Fresnel\n    vec3 F = mix(schlickFresnel, iridescenceFresnelMax, iridescenceFactor);\n\n    // see https://seblagarde.wordpress.com/2012/01/08/pi-or-not-to-pi-in-game-lighting-equation/\n    return (1.0 - specularWeight * F) * (diffuseColor / M_PI);\n}\n#endif\n\n//  https://github.com/KhronosGroup/glTF/tree/master/specification/2.0#acknowledgments AppendixB\nvec3 BRDF_specularGGX(vec3 f0, vec3 f90, float alphaRoughness, float specularWeight, float VdotH, float NdotL, float NdotV, float NdotH)\n{\n    vec3 F = F_Schlick(f0, f90, VdotH);\n    float Vis = V_GGX(NdotL, NdotV, alphaRoughness);\n    float D = D_GGX(NdotH, alphaRoughness);\n\n    return specularWeight * F * Vis * D;\n}\n\n#ifdef MATERIAL_IRIDESCENCE\nvec3 BRDF_specularGGXIridescence(vec3 f0, vec3 f90, vec3 iridescenceFresnel, float alphaRoughness, float iridescenceFactor, float specularWeight, float VdotH, float NdotL, float NdotV, float NdotH)\n{\n    vec3 F = mix(F_Schlick(f0, f90, VdotH), iridescenceFresnel, iridescenceFactor);\n    float Vis = V_GGX(NdotL, NdotV, alphaRoughness);\n    float D = D_GGX(NdotH, alphaRoughness);\n\n    return specularWeight * F * Vis * D;\n}\n#endif\n\n#ifdef MATERIAL_ANISOTROPY\n// GGX Distribution Anisotropic (Same as Babylon.js)\n// https://blog.selfshadow.com/publications/s2012-shading-course/burley/s2012_pbs_disney_brdf_notes_v3.pdf Addenda\nfloat D_GGX_anisotropic(float NdotH, float TdotH, float BdotH, float anisotropy, float at, float ab)\n{\n    float a2 = at * ab;\n    vec3 f = vec3(ab * TdotH, at * BdotH, a2 * NdotH);\n    float w2 = a2 / dot(f, f);\n    return a2 * w2 * w2 / M_PI;\n}\n\n// GGX Mask/Shadowing Anisotropic (Same as Babylon.js - smithVisibility_GGXCorrelated_Anisotropic)\n// Heitz http://jcgt.org/published/0003/02/03/paper.pdf\nfloat V_GGX_anisotropic(float NdotL, float NdotV, float BdotV, float TdotV, float TdotL, float BdotL, float at, float ab)\n{\n    float GGXV = NdotL * length(vec3(at * TdotV, ab * BdotV, NdotV));\n    float GGXL = NdotV * length(vec3(at * TdotL, ab * BdotL, NdotL));\n    float v = 0.5 / (GGXV + GGXL);\n    return clamp(v, 0.0, 1.0);\n}\n\nvec3 BRDF_specularGGXAnisotropy(vec3 f0, vec3 f90, float alphaRoughness, float anisotropy, vec3 n, vec3 v, vec3 l, vec3 h, vec3 t, vec3 b)\n{\n    // Roughness along the anisotropy bitangent is the material roughness, while the tangent roughness increases with anisotropy.\n    float at = mix(alphaRoughness, 1.0, anisotropy * anisotropy);\n    float ab = clamp(alphaRoughness, 0.001, 1.0);\n\n    float NdotL = clamp(dot(n, l), 0.0, 1.0);\n    float NdotH = clamp(dot(n, h), 0.001, 1.0);\n    float NdotV = dot(n, v);\n    float VdotH = clamp(dot(v, h), 0.0, 1.0);\n\n    float V = V_GGX_anisotropic(NdotL, NdotV, dot(b, v), dot(t, v), dot(t, l), dot(b, l), at, ab);\n    float D = D_GGX_anisotropic(NdotH, dot(t, h), dot(b, h), anisotropy, at, ab);\n\n    vec3 F = F_Schlick(f0, f90, VdotH);\n    return F * V * D;\n}\n#endif\n\n// f_sheen\nvec3 BRDF_specularSheen(vec3 sheenColor, float sheenRoughness, float NdotL, float NdotV, float NdotH)\n{\n    float sheenDistribution = D_Charlie(sheenRoughness, NdotH);\n    float sheenVisibility = V_Sheen(NdotL, NdotV, sheenRoughness);\n    return sheenColor * sheenDistribution * sheenVisibility;\n}\n"; // eslint-disable-line
 
@@ -3688,7 +3686,7 @@ var materialInfoShader = "#define GLSLIFY 1\n// Metallic Roughness\nuniform floa
 
 var iblShader = "#define GLSLIFY 1\nuniform float u_EnvIntensity;\n\nvec3 getDiffuseLight(vec3 n)\n{\n    return texture(u_LambertianEnvSampler, u_EnvRotation * n).rgb * u_EnvIntensity;\n}\n\nvec4 getSpecularSample(vec3 reflection, float lod)\n{\n    return textureLod(u_GGXEnvSampler, u_EnvRotation * reflection, lod) * u_EnvIntensity;\n}\n\nvec4 getSheenSample(vec3 reflection, float lod)\n{\n    return textureLod(u_CharlieEnvSampler, u_EnvRotation * reflection, lod) * u_EnvIntensity;\n}\n\nvec3 getIBLRadianceGGX(vec3 n, vec3 v, float roughness, vec3 F0, float specularWeight)\n{\n    float NdotV = clampedDot(n, v);\n    float lod = roughness * float(u_MipCount - 1);\n    vec3 reflection = normalize(reflect(-v, n));\n\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;\n    vec4 specularSample = getSpecularSample(reflection, lod);\n\n    vec3 specularLight = specularSample.rgb;\n\n    // see https://bruop.github.io/ibl/#single_scattering_results at Single Scattering Results\n    // Roughness dependent fresnel, from Fdez-Aguera\n    vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;\n    vec3 k_S = F0 + Fr * pow(1.0 - NdotV, 5.0);\n    vec3 FssEss = k_S * f_ab.x + f_ab.y;\n\n    return specularWeight * specularLight * FssEss;\n}\n\n#ifdef MATERIAL_IRIDESCENCE\nvec3 getIBLRadianceGGXIridescence(vec3 n, vec3 v, float roughness, vec3 F0, vec3 iridescenceFresnel, float iridescenceFactor, float specularWeight)\n{\n    float NdotV = clampedDot(n, v);\n    float lod = roughness * float(u_MipCount - 1);\n    vec3 reflection = normalize(reflect(-v, n));\n\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;\n    vec4 specularSample = getSpecularSample(reflection, lod);\n\n    vec3 specularLight = specularSample.rgb;\n\n    // see https://bruop.github.io/ibl/#single_scattering_results at Single Scattering Results\n    // Roughness dependent fresnel, from Fdez-Aguera\n    vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;\n    vec3 k_S = mix(F0 + Fr * pow(1.0 - NdotV, 5.0), iridescenceFresnel, iridescenceFactor);\n    vec3 FssEss = k_S * f_ab.x + f_ab.y;\n\n    return specularWeight * specularLight * FssEss;\n}\n#endif\n\n#ifdef MATERIAL_TRANSMISSION\nvec3 getTransmissionSample(vec2 fragCoord, float roughness, float ior)\n{\n    float framebufferLod = log2(float(u_TransmissionFramebufferSize.x)) * applyIorToRoughness(roughness, ior);\n    vec3 transmittedLight = textureLod(u_TransmissionFramebufferSampler, fragCoord.xy, framebufferLod).rgb;\n    return transmittedLight;\n}\n#endif\n\n#ifdef MATERIAL_TRANSMISSION\nvec3 getIBLVolumeRefraction(vec3 n, vec3 v, float perceptualRoughness, vec3 baseColor, vec3 f0, vec3 f90,\n    vec3 position, mat4 modelMatrix, mat4 viewMatrix, mat4 projMatrix, float ior, float thickness, vec3 attenuationColor, float attenuationDistance)\n{\n    vec3 transmissionRay = getVolumeTransmissionRay(n, v, thickness, ior, modelMatrix);\n    vec3 refractedRayExit = position + transmissionRay;\n\n    // Project refracted vector on the framebuffer, while mapping to normalized device coordinates.\n    vec4 ndcPos = projMatrix * viewMatrix * vec4(refractedRayExit, 1.0);\n    vec2 refractionCoords = ndcPos.xy / ndcPos.w;\n    refractionCoords += 1.0;\n    refractionCoords /= 2.0;\n\n    // Sample framebuffer to get pixel the refracted ray hits.\n    vec3 transmittedLight = getTransmissionSample(refractionCoords, perceptualRoughness, ior);\n\n    vec3 attenuatedColor = applyVolumeAttenuation(transmittedLight, length(transmissionRay), attenuationColor, attenuationDistance);\n\n    // Sample GGX LUT to get the specular component.\n    float NdotV = clampedDot(n, v);\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, perceptualRoughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    vec2 brdf = texture(u_GGXLUT, brdfSamplePoint).rg;\n    vec3 specularColor = f0 * brdf.x + f90 * brdf.y;\n\n    return (1.0 - specularColor) * attenuatedColor * baseColor;\n}\n#endif\n\n// specularWeight is introduced with KHR_materials_specular\nvec3 getIBLRadianceLambertian(vec3 n, vec3 v, float roughness, vec3 diffuseColor, vec3 F0, float specularWeight)\n{\n    float NdotV = clampedDot(n, v);\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;\n\n    vec3 irradiance = getDiffuseLight(n);\n\n    // see https://bruop.github.io/ibl/#single_scattering_results at Single Scattering Results\n    // Roughness dependent fresnel, from Fdez-Aguera\n\n    vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;\n    vec3 k_S = F0 + Fr * pow(1.0 - NdotV, 5.0);\n    vec3 FssEss = specularWeight * k_S * f_ab.x + f_ab.y; // <--- GGX / specular light contribution (scale it down if the specularWeight is low)\n\n    // Multiple scattering, from Fdez-Aguera\n    float Ems = (1.0 - (f_ab.x + f_ab.y));\n    vec3 F_avg = specularWeight * (F0 + (1.0 - F0) / 21.0);\n    vec3 FmsEms = Ems * FssEss * F_avg / (1.0 - F_avg * Ems);\n    vec3 k_D = diffuseColor * (1.0 - FssEss + FmsEms); // we use +FmsEms as indicated by the formula in the blog post (might be a typo in the implementation)\n\n    return (FmsEms + k_D) * irradiance;\n}\n\n#ifdef MATERIAL_IRIDESCENCE\n// specularWeight is introduced with KHR_materials_specular\nvec3 getIBLRadianceLambertianIridescence(vec3 n, vec3 v, float roughness, vec3 diffuseColor, vec3 F0, vec3 iridescenceF0, float iridescenceFactor, float specularWeight)\n{\n    float NdotV = clampedDot(n, v);\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;\n\n    vec3 irradiance = getDiffuseLight(n);\n\n    // Use the maximum component of the iridescence Fresnel color\n    // Maximum is used instead of the RGB value to not get inverse colors for the diffuse BRDF\n    vec3 iridescenceF0Max = vec3(max(max(iridescenceF0.r, iridescenceF0.g), iridescenceF0.b));\n\n    // Blend between base F0 and iridescence F0\n    vec3 mixedF0 = mix(F0, iridescenceF0Max, iridescenceFactor);\n\n    // see https://bruop.github.io/ibl/#single_scattering_results at Single Scattering Results\n    // Roughness dependent fresnel, from Fdez-Aguera\n\n    vec3 Fr = max(vec3(1.0 - roughness), mixedF0) - mixedF0;\n    vec3 k_S = mixedF0 + Fr * pow(1.0 - NdotV, 5.0);\n    vec3 FssEss = specularWeight * k_S * f_ab.x + f_ab.y; // <--- GGX / specular light contribution (scale it down if the specularWeight is low)\n\n    // Multiple scattering, from Fdez-Aguera\n    float Ems = (1.0 - (f_ab.x + f_ab.y));\n    vec3 F_avg = specularWeight * (mixedF0 + (1.0 - mixedF0) / 21.0);\n    vec3 FmsEms = Ems * FssEss * F_avg / (1.0 - F_avg * Ems);\n    vec3 k_D = diffuseColor * (1.0 - FssEss + FmsEms); // we use +FmsEms as indicated by the formula in the blog post (might be a typo in the implementation)\n\n    return (FmsEms + k_D) * irradiance;\n}\n#endif\n\n#ifdef MATERIAL_ANISOTROPY\nvec3 getIBLRadianceAnisotropy(vec3 n, vec3 v, float roughness, float anisotropy, vec3 anisotropyDirection, vec3 F0, float specularWeight)\n{\n    float NdotV = clampedDot(n, v);\n\n    float tangentRoughness = mix(roughness, 1.0, anisotropy * anisotropy);\n    vec3  anisotropicTangent  = cross(anisotropyDirection, v);\n    vec3  anisotropicNormal   = cross(anisotropicTangent, anisotropyDirection);\n    float bendFactor          = 1.0 - anisotropy * (1.0 - roughness);\n    float bendFactorPow4      = bendFactor * bendFactor * bendFactor * bendFactor;\n    vec3  bentNormal          = normalize(mix(anisotropicNormal, n, bendFactorPow4));\n\n    float lod = roughness * float(u_MipCount - 1);\n    vec3 reflection = normalize(reflect(-v, bentNormal));\n\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, roughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    vec2 f_ab = texture(u_GGXLUT, brdfSamplePoint).rg;\n    vec4 specularSample = getSpecularSample(reflection, lod);\n\n    vec3 specularLight = specularSample.rgb;\n\n    // see https://bruop.github.io/ibl/#single_scattering_results at Single Scattering Results\n    // Roughness dependent fresnel, from Fdez-Aguera\n    vec3 Fr = max(vec3(1.0 - roughness), F0) - F0;\n    vec3 k_S = F0 + Fr * pow(1.0 - NdotV, 5.0);\n    vec3 FssEss = k_S * f_ab.x + f_ab.y;\n\n    return specularWeight * specularLight * FssEss;\n}\n#endif\n\nvec3 getIBLRadianceCharlie(vec3 n, vec3 v, float sheenRoughness, vec3 sheenColor)\n{\n    float NdotV = clampedDot(n, v);\n    float lod = sheenRoughness * float(u_MipCount - 1);\n    vec3 reflection = normalize(reflect(-v, n));\n\n    vec2 brdfSamplePoint = clamp(vec2(NdotV, sheenRoughness), vec2(0.0, 0.0), vec2(1.0, 1.0));\n    float brdf = texture(u_CharlieLUT, brdfSamplePoint).b;\n    vec4 sheenSample = getSheenSample(reflection, lod);\n\n    vec3 sheenLight = sheenSample.rgb;\n    return sheenLight * sheenColor * brdf;\n}\n"; // eslint-disable-line
 
-var punctualShader = "#define GLSLIFY 1\n// KHR_lights_punctual extension.\n// see https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_lights_punctual\nstruct Light\n{\n    vec3 direction;\n    float range;\n\n    vec3 color;\n    float intensity;\n\n    vec3 position;\n    float innerConeCos;\n\n    float outerConeCos;\n    int type;\n};\n\nconst int LightType_Directional = 0;\nconst int LightType_Point = 1;\nconst int LightType_Spot = 2;\n\n#ifdef USE_PUNCTUAL\nuniform Light u_Lights[LIGHT_COUNT + 1]; //Array [0] is not allowed\n#endif\n\n// https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_lights_punctual/README.md#range-property\nfloat getRangeAttenuation(float range, float distance)\n{\n    if (range <= 0.0)\n    {\n        // negative range means unlimited\n        return 1.0 / pow(distance, 2.0);\n    }\n    return max(min(1.0 - pow(distance / range, 4.0), 1.0), 0.0) / pow(distance, 2.0);\n}\n\n// https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_lights_punctual/README.md#inner-and-outer-cone-angles\nfloat getSpotAttenuation(vec3 pointToLight, vec3 spotDirection, float outerConeCos, float innerConeCos)\n{\n    float actualCos = dot(normalize(spotDirection), normalize(-pointToLight));\n    if (actualCos > outerConeCos)\n    {\n        if (actualCos < innerConeCos)\n        {\n            return smoothstep(outerConeCos, innerConeCos, actualCos);\n        }\n        return 1.0;\n    }\n    return 0.0;\n}\n\nvec3 getLighIntensity(Light light, vec3 pointToLight)\n{\n    float rangeAttenuation = 1.0;\n    float spotAttenuation = 1.0;\n\n    if (light.type != LightType_Directional)\n    {\n        rangeAttenuation = getRangeAttenuation(light.range, length(pointToLight));\n    }\n    if (light.type == LightType_Spot)\n    {\n        spotAttenuation = getSpotAttenuation(pointToLight, light.direction, light.outerConeCos, light.innerConeCos);\n    }\n\n    return rangeAttenuation * spotAttenuation * light.intensity * light.color;\n}\n\nvec3 getPunctualRadianceTransmission(vec3 normal, vec3 view, vec3 pointToLight, float alphaRoughness,\n    vec3 f0, vec3 f90, vec3 baseColor, float ior)\n{\n    float transmissionRougness = applyIorToRoughness(alphaRoughness, ior);\n\n    vec3 n = normalize(normal);           // Outward direction of surface point\n    vec3 v = normalize(view);             // Direction from surface point to view\n    vec3 l = normalize(pointToLight);\n    vec3 l_mirror = normalize(l + 2.0*n*dot(-l, n));     // Mirror light reflection vector on surface\n    vec3 h = normalize(l_mirror + v);            // Halfway vector between transmission light vector and v\n\n    float D = D_GGX(clamp(dot(n, h), 0.0, 1.0), transmissionRougness);\n    vec3 F = F_Schlick(f0, f90, clamp(dot(v, h), 0.0, 1.0));\n    float Vis = V_GGX(clamp(dot(n, l_mirror), 0.0, 1.0), clamp(dot(n, v), 0.0, 1.0), transmissionRougness);\n\n    // Transmission BTDF\n    return (1.0 - F) * baseColor * D * Vis;\n}\n\nvec3 getPunctualRadianceClearCoat(vec3 clearcoatNormal, vec3 v, vec3 l, vec3 h, float VdotH, vec3 f0, vec3 f90, float clearcoatRoughness)\n{\n    float NdotL = clampedDot(clearcoatNormal, l);\n    float NdotV = clampedDot(clearcoatNormal, v);\n    float NdotH = clampedDot(clearcoatNormal, h);\n    return NdotL * BRDF_specularGGX(f0, f90, clearcoatRoughness * clearcoatRoughness, 1.0, VdotH, NdotL, NdotV, NdotH);\n}\n\nvec3 getPunctualRadianceSheen(vec3 sheenColor, float sheenRoughness, float NdotL, float NdotV, float NdotH)\n{\n    return NdotL * BRDF_specularSheen(sheenColor, sheenRoughness, NdotL, NdotV, NdotH);\n}\n\n// Compute attenuated light as it travels through a volume.\nvec3 applyVolumeAttenuation(vec3 radiance, float transmissionDistance, vec3 attenuationColor, float attenuationDistance)\n{\n    if (attenuationDistance == 0.0)\n    {\n        // Attenuation distance is +∞ (which we indicate by zero), i.e. the transmitted color is not attenuated at all.\n        return radiance;\n    }\n    else\n    {\n        // Compute light attenuation using Beer's law.\n        vec3 attenuationCoefficient = -log(attenuationColor) / attenuationDistance;\n        vec3 transmittance = exp(-attenuationCoefficient * transmissionDistance); // Beer's law\n        return transmittance * radiance;\n    }\n}\n\nvec3 getVolumeTransmissionRay(vec3 n, vec3 v, float thickness, float ior, mat4 modelMatrix)\n{\n    // Direction of refracted light.\n    vec3 refractionVector = refract(-v, normalize(n), 1.0 / ior);\n\n    // Compute rotation-independant scaling of the model matrix.\n    vec3 modelScale;\n    modelScale.x = length(vec3(modelMatrix[0].xyz));\n    modelScale.y = length(vec3(modelMatrix[1].xyz));\n    modelScale.z = length(vec3(modelMatrix[2].xyz));\n\n    // The thickness is specified in local space.\n    return normalize(refractionVector) * thickness * modelScale;\n}\n"; // eslint-disable-line
+var punctualShader = "#define GLSLIFY 1\n// KHR_lights_punctual extension.\n// see https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_lights_punctual\nstruct Light\n{\n    vec3 direction;\n    float range;\n\n    vec3 color;\n    float intensity;\n\n    vec3 position;\n    float innerConeCos;\n\n    float outerConeCos;\n    int type;\n};\n\nconst int LightType_Directional = 0;\nconst int LightType_Point = 1;\nconst int LightType_Spot = 2;\n\n#ifdef USE_PUNCTUAL\nuniform Light u_Lights[LIGHT_COUNT + 1]; //Array [0] is not allowed\n#endif\n\n// https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_lights_punctual/README.md#range-property\nfloat getRangeAttenuation(float range, float distance)\n{\n    if (range <= 0.0)\n    {\n        // negative range means unlimited\n        return 1.0 / pow(distance, 2.0);\n    }\n    return max(min(1.0 - pow(distance / range, 4.0), 1.0), 0.0) / pow(distance, 2.0);\n}\n\n// https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_lights_punctual/README.md#inner-and-outer-cone-angles\nfloat getSpotAttenuation(vec3 pointToLight, vec3 spotDirection, float outerConeCos, float innerConeCos)\n{\n    float actualCos = dot(normalize(spotDirection), normalize(-pointToLight));\n    if (actualCos > outerConeCos)\n    {\n        if (actualCos < innerConeCos)\n        {\n            float angularAttenuation = (actualCos - outerConeCos) / (innerConeCos - outerConeCos);\n            return angularAttenuation * angularAttenuation;\n        }\n        return 1.0;\n    }\n    return 0.0;\n}\n\nvec3 getLighIntensity(Light light, vec3 pointToLight)\n{\n    float rangeAttenuation = 1.0;\n    float spotAttenuation = 1.0;\n\n    if (light.type != LightType_Directional)\n    {\n        rangeAttenuation = getRangeAttenuation(light.range, length(pointToLight));\n    }\n    if (light.type == LightType_Spot)\n    {\n        spotAttenuation = getSpotAttenuation(pointToLight, light.direction, light.outerConeCos, light.innerConeCos);\n    }\n\n    return rangeAttenuation * spotAttenuation * light.intensity * light.color;\n}\n\nvec3 getPunctualRadianceTransmission(vec3 normal, vec3 view, vec3 pointToLight, float alphaRoughness,\n    vec3 f0, vec3 f90, vec3 baseColor, float ior)\n{\n    float transmissionRougness = applyIorToRoughness(alphaRoughness, ior);\n\n    vec3 n = normalize(normal);           // Outward direction of surface point\n    vec3 v = normalize(view);             // Direction from surface point to view\n    vec3 l = normalize(pointToLight);\n    vec3 l_mirror = normalize(l + 2.0*n*dot(-l, n));     // Mirror light reflection vector on surface\n    vec3 h = normalize(l_mirror + v);            // Halfway vector between transmission light vector and v\n\n    float D = D_GGX(clamp(dot(n, h), 0.0, 1.0), transmissionRougness);\n    vec3 F = F_Schlick(f0, f90, clamp(dot(v, h), 0.0, 1.0));\n    float Vis = V_GGX(clamp(dot(n, l_mirror), 0.0, 1.0), clamp(dot(n, v), 0.0, 1.0), transmissionRougness);\n\n    // Transmission BTDF\n    return (1.0 - F) * baseColor * D * Vis;\n}\n\nvec3 getPunctualRadianceClearCoat(vec3 clearcoatNormal, vec3 v, vec3 l, vec3 h, float VdotH, vec3 f0, vec3 f90, float clearcoatRoughness)\n{\n    float NdotL = clampedDot(clearcoatNormal, l);\n    float NdotV = clampedDot(clearcoatNormal, v);\n    float NdotH = clampedDot(clearcoatNormal, h);\n    return NdotL * BRDF_specularGGX(f0, f90, clearcoatRoughness * clearcoatRoughness, 1.0, VdotH, NdotL, NdotV, NdotH);\n}\n\nvec3 getPunctualRadianceSheen(vec3 sheenColor, float sheenRoughness, float NdotL, float NdotV, float NdotH)\n{\n    return NdotL * BRDF_specularSheen(sheenColor, sheenRoughness, NdotL, NdotV, NdotH);\n}\n\n// Compute attenuated light as it travels through a volume.\nvec3 applyVolumeAttenuation(vec3 radiance, float transmissionDistance, vec3 attenuationColor, float attenuationDistance)\n{\n    if (attenuationDistance == 0.0)\n    {\n        // Attenuation distance is +∞ (which we indicate by zero), i.e. the transmitted color is not attenuated at all.\n        return radiance;\n    }\n    else\n    {\n        // Compute light attenuation using Beer's law.\n        vec3 attenuationCoefficient = -log(attenuationColor) / attenuationDistance;\n        vec3 transmittance = exp(-attenuationCoefficient * transmissionDistance); // Beer's law\n        return transmittance * radiance;\n    }\n}\n\nvec3 getVolumeTransmissionRay(vec3 n, vec3 v, float thickness, float ior, mat4 modelMatrix)\n{\n    // Direction of refracted light.\n    vec3 refractionVector = refract(-v, normalize(n), 1.0 / ior);\n\n    // Compute rotation-independant scaling of the model matrix.\n    vec3 modelScale;\n    modelScale.x = length(vec3(modelMatrix[0].xyz));\n    modelScale.y = length(vec3(modelMatrix[1].xyz));\n    modelScale.z = length(vec3(modelMatrix[2].xyz));\n\n    // The thickness is specified in local space.\n    return normalize(refractionVector) * thickness * modelScale;\n}\n"; // eslint-disable-line
 
 var primitiveShader = "#define GLSLIFY 1\n#include <animation.glsl>\n\nuniform mat4 u_ViewProjectionMatrix;\nuniform mat4 u_ModelMatrix;\nuniform mat4 u_NormalMatrix;\n\nin vec3 a_position;\nout vec3 v_Position;\n\n#ifdef HAS_NORMAL_VEC3\nin vec3 a_normal;\n#endif\n\n#ifdef HAS_NORMAL_VEC3\n#ifdef HAS_TANGENT_VEC4\nin vec4 a_tangent;\nout mat3 v_TBN;\n#else\nout vec3 v_Normal;\n#endif\n#endif\n\n#ifdef HAS_TEXCOORD_0_VEC2\nin vec2 a_texcoord_0;\n#endif\n\n#ifdef HAS_TEXCOORD_1_VEC2\nin vec2 a_texcoord_1;\n#endif\n\nout vec2 v_texcoord_0;\nout vec2 v_texcoord_1;\n\n#ifdef HAS_COLOR_0_VEC3\nin vec3 a_color_0;\nout vec3 v_Color;\n#endif\n\n#ifdef HAS_COLOR_0_VEC4\nin vec4 a_color_0;\nout vec4 v_Color;\n#endif\n\nvec4 getPosition()\n{\n    vec4 pos = vec4(a_position, 1.0);\n\n#ifdef USE_MORPHING\n    pos += getTargetPosition(gl_VertexID);\n#endif\n\n#ifdef USE_SKINNING\n    pos = getSkinningMatrix() * pos;\n#endif\n\n    return pos;\n}\n\n#ifdef HAS_NORMAL_VEC3\nvec3 getNormal()\n{\n    vec3 normal = a_normal;\n\n#ifdef USE_MORPHING\n    normal += getTargetNormal(gl_VertexID);\n#endif\n\n#ifdef USE_SKINNING\n    normal = mat3(getSkinningNormalMatrix()) * normal;\n#endif\n\n    return normalize(normal);\n}\n#endif\n\n#ifdef HAS_NORMAL_VEC3\n#ifdef HAS_TANGENT_VEC4\nvec3 getTangent()\n{\n    vec3 tangent = a_tangent.xyz;\n\n#ifdef USE_MORPHING\n    tangent += getTargetTangent(gl_VertexID);\n#endif\n\n#ifdef USE_SKINNING\n    tangent = mat3(getSkinningMatrix()) * tangent;\n#endif\n\n    return normalize(tangent);\n}\n#endif\n#endif\n\nvoid main()\n{\n    gl_PointSize = 1.0f;\n    vec4 pos = u_ModelMatrix * getPosition();\n    v_Position = vec3(pos.xyz) / pos.w;\n\n#ifdef HAS_NORMAL_VEC3\n#ifdef HAS_TANGENT_VEC4\n    vec3 tangent = getTangent();\n    vec3 normalW = normalize(vec3(u_NormalMatrix * vec4(getNormal(), 0.0)));\n    vec3 tangentW = normalize(vec3(u_ModelMatrix * vec4(tangent, 0.0)));\n    vec3 bitangentW = cross(normalW, tangentW) * a_tangent.w;\n    v_TBN = mat3(tangentW, bitangentW, normalW);\n#else\n    v_Normal = normalize(vec3(u_NormalMatrix * vec4(getNormal(), 0.0)));\n#endif\n#endif\n\n    v_texcoord_0 = vec2(0.0, 0.0);\n    v_texcoord_1 = vec2(0.0, 0.0);\n\n#ifdef HAS_TEXCOORD_0_VEC2\n    v_texcoord_0 = a_texcoord_0;\n#endif\n\n#ifdef HAS_TEXCOORD_1_VEC2\n    v_texcoord_1 = a_texcoord_1;\n#endif\n\n#ifdef USE_MORPHING\n    v_texcoord_0 += getTargetTexCoord0(gl_VertexID);\n    v_texcoord_1 += getTargetTexCoord1(gl_VertexID);\n#endif\n\n#if defined(HAS_COLOR_0_VEC3) \n    v_Color = a_color_0;\n#if defined(USE_MORPHING)\n    v_Color = clamp(v_Color + getTargetColor0(gl_VertexID).xyz, 0.0f, 1.0f);\n#endif\n#endif\n\n#if defined(HAS_COLOR_0_VEC4) \n    v_Color = a_color_0;\n#if defined(USE_MORPHING)\n    v_Color = clamp(v_Color + getTargetColor0(gl_VertexID), 0.0f, 1.0f);\n#endif\n#endif\n\n    gl_Position = u_ViewProjectionMatrix * pos;\n}\n"; // eslint-disable-line
 
@@ -4001,14 +3999,14 @@ class gltfRenderer
     clearFrame(clearColor)
     {
         this.webGl.context.bindFramebuffer(this.webGl.context.FRAMEBUFFER, null);
-        this.webGl.context.clearColor(clearColor[0] / 255.0, clearColor[1] / 255.0, clearColor[2] / 255.0, clearColor[3] / 255.0);
+        this.webGl.context.clearColor(...clearColor);
         this.webGl.context.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
         this.webGl.context.bindFramebuffer(this.webGl.context.FRAMEBUFFER, this.opaqueFramebuffer);
-        this.webGl.context.clearColor(clearColor[0] / 255.0, clearColor[1] / 255.0, clearColor[2] / 255.0, clearColor[3] / 255.0);
+        this.webGl.context.clearColor(...clearColor);
         this.webGl.context.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
         this.webGl.context.bindFramebuffer(this.webGl.context.FRAMEBUFFER, null);
         this.webGl.context.bindFramebuffer(this.webGl.context.FRAMEBUFFER, this.opaqueFramebufferMSAA);
-        this.webGl.context.clearColor(clearColor[0] / 255.0, clearColor[1] / 255.0, clearColor[2] / 255.0, clearColor[3] / 255.0);
+        this.webGl.context.clearColor(...clearColor);
         this.webGl.context.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
         this.webGl.context.bindFramebuffer(this.webGl.context.FRAMEBUFFER, null);
     }
@@ -7314,13 +7312,12 @@ class gltfBuffer extends GltfObject
             return false;
         }
 
-        const foundFile = files.find(function(file)
-        {
+        const foundFile = files.find(([path, file]) => {
             if (file.name === this.uri || file.fullPath === this.uri)
             {
                 return true;
             }
-        }, this);
+        });
 
         if (foundFile === undefined)
         {
@@ -7334,7 +7331,7 @@ class gltfBuffer extends GltfObject
             self.buffer = event.target.result;
             callback();
         };
-        reader.readAsArrayBuffer(foundFile);
+        reader.readAsArrayBuffer(foundFile[1]);
 
         return true;
     }
@@ -19543,12 +19540,9 @@ class gltfImage extends GltfObject
 
     resolveRelativePath(basePath)
     {
-        if (typeof this.uri === 'string' || this.uri instanceof String)
-        {
-            if (this.uri.startsWith('./'))
-            {
-                // Remove preceding './' from URI.
-                this.uri = this.uri.substr(2);
+        if (typeof this.uri === 'string' || this.uri instanceof String) {
+            if (this.uri.startsWith('./')) {
+                this.uri = this.uri.substring(2);
             }
             this.uri = basePath + this.uri;
         }
@@ -19566,10 +19560,9 @@ class gltfImage extends GltfObject
         }
 
         if (!await this.setImageFromBufferView(gltf) &&
-            !await this.setImageFromFiles(additionalFiles, gltf) &&
+            !await this.setImageFromFiles(gltf, additionalFiles) &&
             !await this.setImageFromUri(gltf))
         {
-            console.error("Was not able to resolve image with uri '%s'", this.uri);
             return;
         }
 
@@ -19804,6 +19797,8 @@ class gltfImage extends GltfObject
             return false;
         }
 
+        console.log("Load image: " + this.mimeType);
+
         const buffer = gltf.buffers[view.buffer].buffer;
         const array = new Uint8Array(buffer, view.byteOffset, view.byteLength);
         this.fileSize = view.byteLength;
@@ -19967,21 +19962,18 @@ class gltfImage extends GltfObject
         return true;
     }
 
-    async setImageFromFiles(files, gltf)
+    async setImageFromFiles(gltf, files)
     {
         if (this.uri === undefined || files === undefined)
         {
             return false;
         }
 
-        let foundFile = files.find(function(file)
-        {
-            const uriName = this.uri.split('\\').pop().split('/').pop();
-            if (file.name === uriName)
-            {
+        let foundFile = files.find(file => {
+            if (file[0] == "/" + this.uri) {
                 return true;
             }
-        }, this);
+        });
 
         if (foundFile === undefined)
         {
@@ -19992,7 +19984,7 @@ class gltfImage extends GltfObject
 
         if (this.mimeType === undefined)
         {
-            this.setMimetypeFromFilename(foundFile.name);
+            this.setMimetypeFromFilename(foundFile[0]);
         }
 
         this.compressedMimeType = this.mimeType;
@@ -20001,7 +19993,7 @@ class gltfImage extends GltfObject
         {
             if (gltf.ktxDecoder !== undefined)
             {
-                const data = new Uint8Array(await foundFile.arrayBuffer());
+                const data = new Uint8Array(await foundFile[1].arrayBuffer());
                 this.image = await gltf.ktxDecoder.loadKtxFromBuffer(data);
                 this.gpuSize = this.image.gpuSize;
                 this.gpuFormat = this.image.gpuFormat;
@@ -20047,7 +20039,7 @@ class gltfImage extends GltfObject
         }
         else if (typeof(Image) !== 'undefined' && (this.mimeType === ImageMimeType.JPEG || this.mimeType === ImageMimeType.PNG))
         {
-            const imageData = await AsyncFileReader.readAsDataURL(foundFile).catch( () => {
+            const imageData = await AsyncFileReader.readAsDataURL(foundFile[1]).catch( () => {
                 console.error("Could not load image with FileReader");
             });
             this.image = await gltfImage.loadHTMLImage(imageData).catch( () => {
@@ -22536,9 +22528,10 @@ class gltfPrimitive extends GltfObject
      */
     unweldAccessor(gltf, accessor, typedIndexView) {
         const componentCount = accessor.getComponentCount(accessor.type);
-
-        const weldedAttribute = accessor.getTypedView(gltf);
-        const unweldedAttribute = new Float32Array(gltf.accessors[this.indices].count * componentCount);
+        
+        const weldedAttribute = accessor.getDeinterlacedView(gltf);
+        // Create new array with same type as weldedAttribute
+        const unweldedAttribute = new weldedAttribute.constructor(gltf.accessors[this.indices].count * componentCount);
 
         // Apply the index mapping.
         for (let i = 0; i < typedIndexView.length; i++) {
@@ -22568,6 +22561,7 @@ class gltfPrimitive extends GltfObject
         unweldedAccessor.componentType = accessor.componentType;
         unweldedAccessor.min = accessor.min;
         unweldedAccessor.max = accessor.max;
+        unweldedAccessor.normalized = accessor.normalized;
         gltf.accessors.push(unweldedAccessor);
 
         // Update the primitive to use the unwelded attribute:
@@ -24729,7 +24723,7 @@ class gltfLoader
     {
         if (appendix && appendix.length > 0)
         {
-            if (appendix[0] instanceof Type)
+            if (appendix[0] instanceof Type || appendix[0][1] instanceof Type)
             {
                 return appendix;
             }
@@ -26154,10 +26148,10 @@ class ResourceLoader
                 console.error("Only .glb files can be loaded from an array buffer");
             }
         }
-        else if (typeof (File) !== 'undefined' && gltfFile instanceof File)
+        else if (Array.isArray(gltfFile) && typeof(File) !== 'undefined' && gltfFile[1] instanceof File)
         {
-            let fileContent = gltfFile;
-            filename = gltfFile.name;
+            let fileContent = gltfFile[1];
+            filename = gltfFile[1].name;
             isGlb = getIsGlb(filename);
             if (isGlb)
             {
@@ -26635,34 +26629,35 @@ class GltfView
 
         const faceCount = activePrimitives
             .map(primitive => {
-                let verticesCount = 0;
-                if(primitive.indices !== undefined)
-                {
-                    verticesCount = state.gltf.accessors[primitive.indices].count;
+                let vertexCount = 0;
+                if (primitive.indices !== undefined) {
+                    vertexCount = state.gltf.accessors[primitive.indices].count;
                 }
-                if (verticesCount === 0)
-                {
+                else {
+                    vertexCount = state.gltf.accessors[primitive.attributes["POSITION"]].count;
+                }
+                if (vertexCount === 0) {
                     return 0;
                 }
 
                 // convert vertex count to point, line or triangle count
                 switch (primitive.mode) {
                 case GL.POINTS:
-                    return verticesCount;
+                    return vertexCount;
                 case GL.LINES:
-                    return verticesCount / 2;
+                    return vertexCount / 2;
                 case GL.LINE_LOOP:
-                    return verticesCount;
+                    return vertexCount;
                 case GL.LINE_STRIP:
-                    return verticesCount - 1;
+                    return vertexCount - 1;
                 case GL.TRIANGLES:
-                    return verticesCount / 3;
+                    return vertexCount / 3;
                 case GL.TRIANGLE_STRIP:
                 case GL.TRIANGLE_FAN:
-                    return verticesCount - 2;
+                    return vertexCount - 2;
                 }
             })
-            .reduce((acc, faceCount) => acc += faceCount);
+            .reduce((acc, faceCount) => acc + faceCount);
 
         // gather data for geometry size
         let geometrySize = 0;
@@ -29464,49 +29459,14 @@ var normalizeWheel = /*@__PURE__*/getDefaultExportFromCjs(normalizeWheel$2.expor
 // as close as possible
 class UIModel
 {
-    constructor(app, modelPathProvider, environments)
-    {
+    constructor(app, modelPathProvider, environments) {
         this.app = app;
-        this.pathProvider = modelPathProvider;
 
-        this.app.models = this.pathProvider.getAllKeys();
+        this.app.models = modelPathProvider.getAllKeys();
 
         const queryString = window.location.search;
         const urlParams = new URLSearchParams(queryString);
         const modelURL = urlParams.get("model");
-
-        let dropdownGltfChanged = undefined;
-        if (modelURL === null)
-        {
-            dropdownGltfChanged = app.modelChanged$.pipe(
-                pluck("event", "msg"),
-                startWith("DamagedHelmet"),
-                map(value => {
-                    app.flavours = this.pathProvider.getModelFlavours(value);
-                    app.selectedFlavour = "glTF";
-                    return this.pathProvider.resolve(value, app.selectedFlavour);
-                }),
-                map( value => ({mainFile: value, additionalFiles: undefined})),
-            );
-        } else {
-            dropdownGltfChanged = app.modelChanged$.pipe(
-                pluck("event", "msg"),
-                map(value => {
-                    app.flavours = this.pathProvider.getModelFlavours(value);
-                    app.selectedFlavour = "glTF";
-                    return this.pathProvider.resolve(value, app.selectedFlavour);
-                }),
-                map( value => ({mainFile: value, additionalFiles: undefined})),
-            );
-        }       
-
-        const dropdownFlavourChanged = app.flavourChanged$.pipe(
-            pluck("event", "msg"),
-            map(value => {
-                return this.pathProvider.resolve(app.selectedModel, value);
-            }),
-            map( value => ({mainFile: value, additionalFiles: undefined})),
-        );
 
         this.scene = app.sceneChanged$.pipe(pluck("event", "msg"));
         this.camera = app.cameraChanged$.pipe(pluck("event", "msg"));
@@ -29514,22 +29474,18 @@ class UIModel
         this.app.environments = environments;
         const selectedEnvironment = app.$watchAsObservable('selectedEnvironment').pipe(
             pluck('newValue'),
-            map( environmentName => this.app.environments[environmentName].hdr_path)
+            map(environmentName => this.app.environments[environmentName].hdr_path)
         );
         const initialEnvironment = "footprint_court";
         this.app.selectedEnvironment = initialEnvironment;
 
-        this.app.tonemaps = Object.keys(GltfState.ToneMaps).map((key) => {
-            return {title: GltfState.ToneMaps[key]};
-        });
+        this.app.tonemaps = Object.keys(GltfState.ToneMaps).map((key) => ({title: GltfState.ToneMaps[key]}));
         this.tonemap = app.tonemapChanged$.pipe(
             pluck("event", "msg"),
             startWith(GltfState.ToneMaps.LINEAR)
         );
 
-        this.app.debugchannels = Object.keys(GltfState.DebugOutput).map((key) => {
-            return {title: GltfState.DebugOutput[key]};
-        });
+        this.app.debugchannels = Object.keys(GltfState.DebugOutput).map((key) => ({title: GltfState.DebugOutput[key]}));
         this.debugchannel = app.debugchannelChanged$.pipe(
             pluck("event", "msg"),
             startWith(GltfState.DebugOutput.NONE)
@@ -29541,27 +29497,18 @@ class UIModel
         this.clearcoatEnabled = app.clearcoatChanged$.pipe(pluck("event", "msg"));
         this.sheenEnabled = app.sheenChanged$.pipe(pluck("event", "msg"));
         this.transmissionEnabled = app.transmissionChanged$.pipe(pluck("event", "msg"));
-        this.volumeEnabled = app.$watchAsObservable('volumeEnabled').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
-        this.iorEnabled = app.$watchAsObservable('iorEnabled').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
-        this.iridescenceEnabled = app.$watchAsObservable('iridescenceEnabled').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
-        this.anisotropyEnabled = app.$watchAsObservable('anisotropyEnabled').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
-        this.specularEnabled = app.$watchAsObservable('specularEnabled').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
-        this.emissiveStrengthEnabled = app.$watchAsObservable('emissiveStrengthEnabled').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
+        this.volumeEnabled = app.$watchAsObservable('volumeEnabled').pipe(pluck('newValue'));
+        this.iorEnabled = app.$watchAsObservable('iorEnabled').pipe(pluck('newValue'));
+        this.iridescenceEnabled = app.$watchAsObservable('iridescenceEnabled').pipe(pluck('newValue'));
+        this.anisotropyEnabled = app.$watchAsObservable('anisotropyEnabled').pipe(pluck('newValue'));
+        this.specularEnabled = app.$watchAsObservable('specularEnabled').pipe(pluck('newValue'));
+        this.emissiveStrengthEnabled = app.$watchAsObservable('emissiveStrengthEnabled').pipe(pluck('newValue'));
         this.iblEnabled = app.iblChanged$.pipe(pluck("event", "msg"));
         this.iblIntensity = app.iblIntensityChanged$.pipe(pluck("event", "msg"));
         this.punctualLightsEnabled = app.punctualLightsChanged$.pipe(pluck("event", "msg"));
-        this.renderEnvEnabled = app.$watchAsObservable('renderEnv').pipe(
-                                            map( ({ newValue, oldValue }) => newValue));
+        this.renderEnvEnabled = app.$watchAsObservable('renderEnv').pipe(pluck('newValue'));
         this.blurEnvEnabled = app.blurEnvChanged$.pipe(pluck("event", "msg"));
-        this.addEnvironment = app.$watchAsObservable('uploadedHDR').pipe(
-            pluck('newValue')
-        );
+        this.addEnvironment = app.$watchAsObservable('uploadedHDR').pipe(pluck('newValue'));
         this.captureCanvas = app.captureCanvas$.pipe(pluck('event'));
         this.cameraValuesExport = app.cameraExport$.pipe(pluck('event'));
 
@@ -29658,66 +29605,78 @@ class UIModel
             filter$1(value => value.event !== undefined),
             pluck("event", "msg"),
             startWith(initialClearColor),
-            map(hex => {
-                // convert hex string to rgb values
-                var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-                return result ? [
-                    parseInt(result[1], 16),
-                    parseInt(result[2], 16),
-                    parseInt(result[3], 16),
-                    255
-                ] : null;
-            })
+            map(hex => /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)),
+            filter$1(color => color !== null),
+            map(color => [
+                parseInt(color[1], 16) / 255.0,
+                parseInt(color[2], 16) / 255.0,
+                parseInt(color[3], 16) / 255.0,
+                1.0
+            ])
         );
 
         this.animationPlay = app.animationPlayChanged$.pipe(pluck("event", "msg"));
-        this.activeAnimations = app.$watchAsObservable('selectedAnimations').pipe(
-            map( ({ newValue, oldValue }) => newValue)
-        );
+        this.activeAnimations = app.$watchAsObservable('selectedAnimations').pipe(pluck('newValue'));
 
         const canvas = document.getElementById("canvas");
-        this.registerDropZoneUIHandle(canvas);
-        const inputObservables = UIModel.getInputObservables(canvas, this.app);
-        this.model = merge$1(dropdownGltfChanged, dropdownFlavourChanged, inputObservables.gltfDropped);
-        this.hdr = merge$1(inputObservables.hdrDropped, selectedEnvironment, this.addEnvironment).pipe(
+        canvas.addEventListener('dragenter', () => this.app.showDropDownOverlay = true);
+        canvas.addEventListener('dragleave', () => this.app.showDropDownOverlay = false);
+
+        const inputObservables = getInputObservables(canvas, this.app);
+
+        const dropdownGltfChanged = app.modelChanged$.pipe(
+            pluck("event", "msg"),
+            startWith(modelURL === null ? "DamagedHelmet" : null),
+            filter$1(value => value !== null),
+            map(value => {
+                app.flavours = modelPathProvider.getModelFlavours(value);
+                app.selectedFlavour = "glTF";
+                return modelPathProvider.resolve(value, app.selectedFlavour);
+            }),
+            map(value => ({mainFile: value})),
+        );
+
+        const dropdownFlavourChanged = app.flavourChanged$.pipe(
+            pluck("event", "msg"),
+            map(value => modelPathProvider.resolve(app.selectedModel, value)),
+            map(value => ({mainFile: value})),
+        );
+
+        this.model = merge$1(dropdownGltfChanged, dropdownFlavourChanged, inputObservables.droppedGltf);
+        this.hdr = merge$1(selectedEnvironment, this.addEnvironment, inputObservables.droppedHdr).pipe(
             startWith(environments[initialEnvironment].hdr_path)
         );
 
-        const hdrUIChange = merge$1(inputObservables.hdrDropped, this.addEnvironment);
-        hdrUIChange.subscribe( hdrPath => {
-            this.app.environments[hdrPath.name] = {
-                title: hdrPath.name,
-                hdr_path: hdrPath,
-            };
-            this.app.selectedEnvironment = hdrPath.name;
-        });
+        merge$1(this.addEnvironment, inputObservables.droppedHdr)
+            .subscribe(hdrPath => {
+                this.app.environments[hdrPath.name] = {
+                    title: hdrPath.name,
+                    hdr_path: hdrPath,
+                };
+                this.app.selectedEnvironment = hdrPath.name;
+            });
 
         this.variant = app.variantChanged$.pipe(pluck("event", "msg"));
 
-        this.model.subscribe(() => {
-            // remove last filename
-            if(this.app.models[this.app.models.length -1] === this.lastDroppedFilename)
-            {
+        // remove last filename
+        this.model
+            .pipe(filter$1(() => this.app.models.at(-1) === this.lastDroppedFilename))
+            .subscribe(() => {
                 this.app.models.pop();
                 this.lastDroppedFilename = undefined;
-            }
-        });
+            });
 
-        let dropedGLtfFileName = inputObservables.gltfDropped.pipe(
-            map( (data) => {
-                return data.mainFile.name;
-            })
-        );
+        let droppedGLtfFileName = inputObservables.droppedGltf.pipe(map(droppedGltf => droppedGltf.mainFile.name));
 
-        if (modelURL !== null){
-            let loadFromUrlObservable = new Observable(subscriber => { subscriber.next({mainFile: modelURL, additionalFiles: undefined});});
-            dropedGLtfFileName = merge$1(dropedGLtfFileName, loadFromUrlObservable.pipe(map((data) => {return data.mainFile;} )));
+        if (modelURL !== null) {
+            const loadFromUrlObservable = new Observable(subscriber => subscriber.next({mainFile: modelURL}));
+            droppedGLtfFileName = merge$1(droppedGLtfFileName, loadFromUrlObservable.pipe(map(data => data.mainFile)));
             this.model = merge$1(this.model, loadFromUrlObservable);
         }
 
-        dropedGLtfFileName.subscribe( (filename) => {
-            if(filename !== undefined)
-            {
+        droppedGLtfFileName
+            .pipe(filter$1(filename => filename !== undefined))
+            .subscribe(filename => {
                 filename = filename.split('/').pop();
                 let fileExtension = filename.split('.').pop();
                 filename = filename.substr(0, filename.lastIndexOf('.'));
@@ -29728,280 +29687,39 @@ class UIModel
 
                 app.flavours = [fileExtension];
                 app.selectedFlavour = fileExtension;
-            }
-        });
+            });
 
         this.orbit = inputObservables.orbit;
         this.pan = inputObservables.pan;
         this.zoom = inputObservables.zoom;
     }
 
-    // app has to be the vuejs app instance
-    static getInputObservables(inputDomElement, app)
+    attachGltfLoaded(gltfLoaded)
     {
-        const observables = {};
+        this.attachCameraChangeObservable(gltfLoaded);
+        gltfLoaded.subscribe(state => {
+            const gltf = state.gltf;
 
-        const simpleDropzoneObservabel = new Observable(subscriber => {
-            const dropCtrl = new xe(inputDomElement, inputDomElement);
-            dropCtrl.on('drop', ({files}) => {
-                app.showDropDownOverlay = false;
-                subscriber.next(files);
-            });
-            dropCtrl.on('droperror', () => {
-                app.showDropDownOverlay = false;
-                subscriber.error();
-            });
-        });
-        observables.filesDropped = simpleDropzoneObservabel.pipe(
-            map(files => Array.from(files.values()))
-        );
+            this.app.assetCopyright = gltf.asset.copyright ?? "N/A";
+            this.app.assetGenerator = gltf.asset.generator ?? "N/A";
+            
+            this.app.selectedScene = state.sceneIndex;
+            this.app.scenes = gltf.scenes.map((scene, index) => ({
+                title: scene.name ?? `Scene ${index}`,
+                index: index
+            }));
 
-        observables.gltfDropped = observables.filesDropped.pipe(
-            // filter out any non .gltf or .glb files
+            this.app.selectedAnimations = state.animationIndices;
 
-            map( (files) => {
-                // restructure the data by separating mainFile (gltf/glb) from additionalFiles
-                const mainFile = files.find( (file) => file.name.endsWith(".glb") || file.name.endsWith(".gltf"));
-                const additionalFiles = files.filter( (file) => file !== mainFile);
-                return {mainFile: mainFile, additionalFiles: additionalFiles};
-            }),
-            filter$1(files => files.mainFile !== undefined),
-        );
-        observables.hdrDropped = observables.filesDropped.pipe(
-            map( (files) => {
-                // extract only the hdr file from the stream of files
-                return files.find( (file) => file.name.endsWith(".hdr"));
-            }),
-            filter$1(file => file !== undefined),
-        );
+            this.app.materialVariants = ["None", ...gltf?.variants.map(variant => variant.name)];
 
-        const mouseMove = fromEvent(document, 'mousemove');
-        const mouseDown = fromEvent(inputDomElement, 'mousedown');
-        const mouseUp = merge$1(fromEvent(document, 'mouseup'), fromEvent(document, 'mouseleave'));
-        
-        inputDomElement.addEventListener('mousemove', event => event.preventDefault());
-        inputDomElement.addEventListener('mousedown', event => event.preventDefault());
-        inputDomElement.addEventListener('mouseup', event => event.preventDefault());
+            this.app.setAnimationState(true);
+            this.app.animations = gltf.animations.map((animation, index) => ({
+                title: animation.name ?? `Animation ${index}`,
+                index: index
+            }));
 
-        const mouseOrbit = mouseDown.pipe(
-            filter$1( event => event.button === 0 && event.shiftKey === false),
-            mergeMap(() => mouseMove.pipe(
-                pairwise(),
-                map( ([oldMouse, newMouse]) => {
-                    return {
-                        deltaPhi: newMouse.pageX - oldMouse.pageX, 
-                        deltaTheta: newMouse.pageY - oldMouse.pageY 
-                    };
-                }),
-                takeUntil(mouseUp)
-            ))
-        );
-
-        const mousePan = mouseDown.pipe(
-            filter$1( event => event.button === 1 || event.shiftKey === true),
-            mergeMap(() => mouseMove.pipe(
-                pairwise(),
-                map( ([oldMouse, newMouse]) => {
-                    return {
-                        deltaX: newMouse.pageX - oldMouse.pageX, 
-                        deltaY: newMouse.pageY - oldMouse.pageY 
-                    };
-                }),
-                takeUntil(mouseUp)
-            ))
-        );
-
-        const smbZoom = mouseDown.pipe(
-            filter$1( event => event.button === 2),
-            mergeMap(() => mouseMove.pipe(takeUntil(mouseUp))),
-            map( mouse => ({deltaZoom: mouse.movementY }))
-        );
-        const wheelZoom = fromEvent(inputDomElement, 'wheel').pipe(
-            map(wheelEvent => normalizeWheel(wheelEvent)),
-            map(normalizedZoom => ({deltaZoom: normalizedZoom.spinY }))
-        );
-        inputDomElement.addEventListener('scroll', event => event.preventDefault(), { passive: false });
-        inputDomElement.addEventListener('wheel', event => event.preventDefault(), { passive: false });
-        const mouseZoom = merge$1(smbZoom, wheelZoom);
-
-        const touchmove = fromEvent(document, 'touchmove');
-        const touchstart = fromEvent(inputDomElement, 'touchstart');
-        const touchend = merge$1(fromEvent(inputDomElement, 'touchend'), fromEvent(inputDomElement, 'touchcancel'));
-
-        const touchOrbit = touchstart.pipe(
-            filter$1(event => event.touches.length === 1),
-            mergeMap(() => touchmove.pipe(
-                filter$1(event => event.touches.length === 1),
-                map(event => event.touches[0]),
-                pairwise(),
-                map(([oldTouch, newTouch]) => {
-                    return {
-                        deltaPhi: 2.0 * (newTouch.clientX - oldTouch.clientX),
-                        deltaTheta: 2.0 * (newTouch.clientY - oldTouch.clientY),
-                    };
-                }),
-                takeUntil(touchend)
-            )),
-        );
-
-        const touchZoom = touchstart.pipe(
-            filter$1(event => event.touches.length === 2),
-            mergeMap(() => touchmove.pipe(
-                filter$1(event => event.touches.length === 2),
-                map(event => {
-                    const pos1 = fromValues(event.touches[0].clientX, event.touches[0].clientY);
-                    const pos2 = fromValues(event.touches[1].clientX, event.touches[1].clientY);
-                    return dist(pos1, pos2);
-                }),
-                pairwise(),
-                map(([oldDist, newDist]) => ({ deltaZoom: 0.1 * (oldDist - newDist) })),
-                takeUntil(touchend))
-            ),
-        );
-
-        inputDomElement.addEventListener('ontouchmove', event => event.preventDefault(), { passive: false });
-        inputDomElement.addEventListener('ontouchstart', event => event.preventDefault(), { passive: false });
-        inputDomElement.addEventListener('ontouchend', event => event.preventDefault(), { passive: false });
-
-        observables.orbit = merge$1(mouseOrbit, touchOrbit);
-        observables.pan = mousePan;
-        observables.zoom = merge$1(mouseZoom, touchZoom);
-
-        // disable context menu
-        inputDomElement.oncontextmenu = () => false;
-
-        return observables;
-    }
-
-    registerDropZoneUIHandle(inputDomElement)
-    {
-        const self = this;
-        inputDomElement.addEventListener('dragenter', function(event) {
-            self.app.showDropDownOverlay = true;
-        });
-        inputDomElement.addEventListener('dragleave', function(event) {
-            self.app.showDropDownOverlay = false;
-        });
-    }
-
-    attachGltfLoaded(glTFLoadedStateObservable)
-    {
-        const gltfLoadedAndInit = glTFLoadedStateObservable.pipe(
-            map( state => state.gltf )
-        );
-
-        // update scenes
-        const sceneIndices = gltfLoadedAndInit.pipe(
-            map( (gltf) => {
-                return gltf.scenes.map( (scene, index) => {
-                    let name = scene.name;
-                    if(name === "" || name === undefined)
-                    {
-                        name = index;
-                    }
-                    return {title: name, index: index};
-                });
-            })
-        );
-        sceneIndices.subscribe( (scenes) => {
-            this.app.scenes = scenes;
-        });
-
-        const loadedSceneIndex = glTFLoadedStateObservable.pipe(
-            map( (state) => state.sceneIndex)
-        );
-        loadedSceneIndex.subscribe( (scene) => {
-            this.app.selectedScene = scene;
-        });
-
-        // update cameras
-        this.attachCameraChangeObservable(glTFLoadedStateObservable);
-
-        const variants = gltfLoadedAndInit.pipe(
-            map( (gltf) => {
-                if(gltf.variants !== undefined)
-                {
-                    return gltf.variants.map( (variant, index) => {
-                        return {title: variant.name};
-                    });
-                }
-                return [];
-            }),
-            map(variants => {
-                // Add a "None" variant to the beginning
-                variants.unshift({title: "None"});
-                return variants;
-            })
-        );
-        variants.subscribe( (variants) => {
-            this.app.materialVariants = variants;
-        });
-
-        gltfLoadedAndInit.subscribe(
-            (_) => {this.app.setAnimationState(true);
-            }
-        );
-
-        const xmpData = gltfLoadedAndInit.pipe(
-            map( (gltf) => {
-                if(gltf.extensions !== undefined && gltf.extensions.KHR_xmp_json_ld !== undefined)
-                {
-                    if(gltf.asset.extensions !== undefined && gltf.asset.extensions.KHR_xmp_json_ld !== undefined)
-                    {
-                        let xmpPacket = gltf.extensions.KHR_xmp_json_ld.packets[gltf.asset.extensions.KHR_xmp_json_ld.packet];
-                        return xmpPacket;
-                    }
-                }
-                return null;
-            })
-        );
-        xmpData.subscribe( (xmpData) => {
-            this.app.xmp = xmpData;
-        });
-
-        const copyrightMsg = gltfLoadedAndInit.pipe(
-            map( (gltf) => {
-                if (gltf.asset.copyright)
-                    return gltf.asset.copyright;
-                return "";
-            })
-        );
-        copyrightMsg.subscribe( (copyright) => {
-            this.app.modelCopyright = copyright;
-        });
-
-        const generatorMsg = gltfLoadedAndInit.pipe(
-            map( (gltf) => {
-                if (gltf.asset.generator)
-                    return "Generator: " + gltf.asset.generator;
-                return "";
-            })
-        );
-        generatorMsg.subscribe( (generator) => {
-            this.app.modelGenerator = generator;
-        });
-
-        const animations = gltfLoadedAndInit.pipe(
-            map( gltf =>  gltf.animations.map( (anim, index) => {
-                let name = anim.name;
-                if (name === undefined || name === "")
-                {
-                    name = index;
-                }
-                return {
-                    title: name,
-                    index: index
-                };
-            }))
-        );
-        animations.subscribe( animations => {
-            this.app.animations = animations;
-        });
-
-        glTFLoadedStateObservable.pipe(
-            map( state => state.animationIndices)
-        ).subscribe( animationIndices => {
-            this.app.selectedAnimations = animationIndices;
+            this.app.xmp = gltf?.extensions?.KHR_xmp_json_ld?.packets[gltf?.asset?.extensions?.KHR_xmp_json_ld.packet] ?? null;
         });
     }
 
@@ -30170,15 +29888,13 @@ class UIModel
 
     disabledAnimations(disabledAnimationsObservable)
     {
-        disabledAnimationsObservable.subscribe(
-            data => { this.app.disabledAnimations = data; }
-        );
+        disabledAnimationsObservable.subscribe(data => this.app.disabledAnimations = data);
     }
 
     attachCameraChangeObservable(sceneChangeObservable)
     {
         const cameraIndices = sceneChangeObservable.pipe(
-            map( (state) => {
+            map(state => {
                 let gltf = state.gltf;
                 let cameraIndices = [{title: "User Camera", index: -1}];
                 if (gltf.scenes[state.sceneIndex] !== undefined)
@@ -30201,40 +29917,148 @@ class UIModel
                 return cameraIndices;
             })
         );
-        cameraIndices.subscribe( (cameras) => {
-            this.app.cameras = cameras;
-        });
-        const loadedCameraIndex = sceneChangeObservable.pipe(
-            map( (state) => {
-                return state.cameraIndex;
-            })
-        );
-        loadedCameraIndex.subscribe( index => {
-            if(index ===  undefined)
-            {
-                index = -1;
-            }
-            this.app.selectedCamera = index;
-        });
-    }
-
-    copyToClipboard(text) {
-        var dummy = document.createElement("textarea");
-        document.body.appendChild(dummy);
-        dummy.value = text;
-        dummy.select();
-        document.execCommand("copy");
-        document.body.removeChild(dummy);
+        cameraIndices.subscribe(cameras => this.app.cameras = cameras);
+        const loadedCameraIndex = sceneChangeObservable.pipe(map(state => state.cameraIndex));
+        loadedCameraIndex.subscribe(index => this.app.selectedCamera = index !== undefined ? index : -1 );
     }
 
     goToLoadingState() {
         this.app.goToLoadingState();
     }
+
     exitLoadingState()
     {
         this.app.exitLoadingState();
     }
 }
+
+const getInputObservables = (inputElement, app) => {
+    const observables = {};
+    
+    const droppedFiles = new Observable(subscriber => {
+        const dropZone = new xe(inputElement, inputElement);
+        dropZone.on('drop', ({files}) => {
+            app.showDropDownOverlay = false;
+            subscriber.next(Array.from(files.entries()));
+        });
+        dropZone.on('droperror', () => {
+            app.showDropDownOverlay = false;
+            subscriber.error();
+        });
+    }).pipe(share());
+
+    // Partition files into a .gltf or .glb and additional files like buffers and textures
+    observables.droppedGltf = droppedFiles.pipe(
+        map(files => ({
+            mainFile: files.find(([path]) => path.endsWith(".glb") || path.endsWith(".gltf")),
+            additionalFiles: files.filter(file => !file[0].endsWith(".glb") && !file[0].endsWith(".gltf"))
+        })),
+        filter$1(files => files.mainFile !== undefined),
+    );
+
+    observables.droppedHdr = droppedFiles.pipe(
+        map(files => files.find(([path]) => path.endsWith(".hdr"))),
+        filter$1(file => file !== undefined),
+        pluck("1")
+    );
+
+    const mouseMove = fromEvent(document, 'mousemove');
+    const mouseDown = fromEvent(inputElement, 'mousedown');
+    const mouseUp = merge$1(fromEvent(document, 'mouseup'), fromEvent(document, 'mouseleave'));
+    
+    inputElement.addEventListener('mousemove', event => event.preventDefault());
+    inputElement.addEventListener('mousedown', event => event.preventDefault());
+    inputElement.addEventListener('mouseup', event => event.preventDefault());
+
+    const mouseOrbit = mouseDown.pipe(
+        filter$1(event => event.button === 0 && event.shiftKey === false),
+        mergeMap(() => mouseMove.pipe(
+            pairwise(),
+            map( ([oldMouse, newMouse]) => {
+                return {
+                    deltaPhi: newMouse.pageX - oldMouse.pageX, 
+                    deltaTheta: newMouse.pageY - oldMouse.pageY 
+                };
+            }),
+            takeUntil(mouseUp)
+        ))
+    );
+
+    const mousePan = mouseDown.pipe(
+        filter$1( event => event.button === 1 || event.shiftKey === true),
+        mergeMap(() => mouseMove.pipe(
+            pairwise(),
+            map( ([oldMouse, newMouse]) => {
+                return {
+                    deltaX: newMouse.pageX - oldMouse.pageX, 
+                    deltaY: newMouse.pageY - oldMouse.pageY 
+                };
+            }),
+            takeUntil(mouseUp)
+        ))
+    );
+
+    const dragZoom = mouseDown.pipe(
+        filter$1( event => event.button === 2),
+        mergeMap(() => mouseMove.pipe(takeUntil(mouseUp))),
+        map( mouse => ({deltaZoom: mouse.movementY}))
+    );
+    const wheelZoom = fromEvent(inputElement, 'wheel').pipe(
+        map(wheelEvent => normalizeWheel(wheelEvent)),
+        map(normalizedZoom => ({deltaZoom: normalizedZoom.spinY }))
+    );
+    inputElement.addEventListener('scroll', event => event.preventDefault(), { passive: false });
+    inputElement.addEventListener('wheel', event => event.preventDefault(), { passive: false });
+    const mouseZoom = merge$1(dragZoom, wheelZoom);
+
+    const touchmove = fromEvent(document, 'touchmove');
+    const touchstart = fromEvent(inputElement, 'touchstart');
+    const touchend = merge$1(fromEvent(inputElement, 'touchend'), fromEvent(inputElement, 'touchcancel'));
+
+    const touchOrbit = touchstart.pipe(
+        filter$1(event => event.touches.length === 1),
+        mergeMap(() => touchmove.pipe(
+            filter$1(event => event.touches.length === 1),
+            map(event => event.touches[0]),
+            pairwise(),
+            map(([oldTouch, newTouch]) => {
+                return {
+                    deltaPhi: 2.0 * (newTouch.clientX - oldTouch.clientX),
+                    deltaTheta: 2.0 * (newTouch.clientY - oldTouch.clientY),
+                };
+            }),
+            takeUntil(touchend)
+        )),
+    );
+
+    const touchZoom = touchstart.pipe(
+        filter$1(event => event.touches.length === 2),
+        mergeMap(() => touchmove.pipe(
+            filter$1(event => event.touches.length === 2),
+            map(event => {
+                const pos1 = fromValues(event.touches[0].clientX, event.touches[0].clientY);
+                const pos2 = fromValues(event.touches[1].clientX, event.touches[1].clientY);
+                return dist(pos1, pos2);
+            }),
+            pairwise(),
+            map(([oldDist, newDist]) => ({ deltaZoom: 0.1 * (oldDist - newDist) })),
+            takeUntil(touchend))
+        ),
+    );
+
+    inputElement.addEventListener('ontouchmove', event => event.preventDefault(), { passive: false });
+    inputElement.addEventListener('ontouchstart', event => event.preventDefault(), { passive: false });
+    inputElement.addEventListener('ontouchend', event => event.preventDefault(), { passive: false });
+
+    observables.orbit = merge$1(mouseOrbit, touchOrbit);
+    observables.pan = mousePan;
+    observables.zoom = merge$1(mouseZoom, touchZoom);
+
+    // disable context menu
+    inputElement.oncontextmenu = () => false;
+
+    return observables;
+};
 
 /*!
  * Vue.js v2.7.16
@@ -58002,7 +57826,7 @@ Vue$2.component('toggle-button', {
     },
     methods:
     {
-        buttonclicked: function(value)
+        buttonclicked: function()
         {
             this.isOn = !this.isOn;
             this.name = this.isOn ? this.ontext : this.offtext;
@@ -58288,14 +58112,14 @@ const app = new Vue$2({
             flavours: ["glTF", "glTF-Binary", "glTF-Quantized", "glTF-Draco", "glTF-pbrSpecularGlossiness"],
             scenes: [{title: "0"}, {title: "1"}],
             cameras: [{title: "User Camera", index: -1}],
-            materialVariants: [{title: "None"}],
+            materialVariants: ["None"],
 
             animations: [{title: "cool animation"}, {title: "even cooler"}, {title: "not cool"}, {title: "Do not click!"}],
             tonemaps: [{title: "None"}],
             debugchannels: [{title: "None"}],
             xmp: [{title: "xmp"}],
-            modelCopyright: "",
-            modelGenerator: "",
+            assetCopyright: "",
+            assetGenerator: "",
             statistics: [],
 
             isGeometryCompressed: false,
@@ -58567,7 +58391,7 @@ const app = new Vue$2({
         {
             this.$refs.animationState.setState(value);
         },
-        iblTriggered: function(value)
+        iblTriggered: function()
         {
             if(this.ibl == false)
             {
@@ -58578,7 +58402,7 @@ const app = new Vue$2({
                 this.renderEnv = this.environmentVisiblePrefState;
             }
         },
-        transmissionTriggered: function(value)
+        transmissionTriggered: function()
         {
             if(this.transmissionEnabled == false)
             {
@@ -58673,7 +58497,7 @@ new Vue$2({
     methods:
     {
         toggleFullscreen() {
-            if(this.fullscreen) {
+            if (this.fullscreen) {
                 app.show();
             } else {
                 app.hide();
@@ -58695,10 +58519,9 @@ new Vue$2({
 }).$mount('#canvasUI');
 
 // pipe error messages to UI
-(function(){
-
-    var originalWarn = console.warn;
-    var originalError = console.error;
+(() => {
+    const originalWarn = console.warn;
+    const originalError = console.error;
 
     console.warn = function(txt) {
         app.warn(txt);
@@ -58710,14 +58533,13 @@ new Vue$2({
     };
 
     window.onerror = function(msg, url, lineNo, columnNo, error) {
-        var message = [
+        app.error([
             'Message: ' + msg,
             'URL: ' + url,
             'Line: ' + lineNo,
             'Column: ' + columnNo,
             'Error object: ' + JSON.stringify(error)
-          ].join(' - ');
-        app.error(message);
+        ].join(' - '));
     };
 })();
 
@@ -58954,9 +58776,9 @@ var substr = 'ab'.substr(-1) === 'b' ?
     }
 ;
 
-class gltfModelPathProvider
+class GltfModelPathProvider
 {
-    constructor(modelIndexerPath, currentFalvour="glTF", ignoredVariants = ["glTF-Embedded"])
+    constructor(modelIndexerPath, ignoredVariants = ["glTF-Embedded"])
     {
         this.modelIndexerPath = modelIndexerPath;
         this.ignoredVariants = ignoredVariants;
@@ -58966,10 +58788,8 @@ class gltfModelPathProvider
     async initialize()
     {
         const self = this;
-        return axios.get(this.modelIndexerPath).then(response =>
-        {
-            self.populateDictionary(response.data);
-        });
+        const response = await axios.get(this.modelIndexerPath);
+        self.populateDictionary(response.data);
     }
 
     resolve(modelKey, flavour)
@@ -58988,7 +58808,6 @@ class gltfModelPathProvider
         this.modelsDictionary = {};
         for (const entry of modelIndexer)
         {
-            // TODO maybe handle undefined names better
             if (entry.variants === undefined || entry.name === undefined)
             {
                 continue;
@@ -59006,7 +58825,6 @@ class gltfModelPathProvider
                 const fileName = entry.variants[variant];
                 const modelPath = path.join(modelsFolder, entry.name, variant, fileName);
                 variants[variant] = modelPath;
-
             }
             this.modelsDictionary[entry.name] = variants;
         }
@@ -68751,16 +68569,15 @@ class GlbSerializer
     }
 }
 
-async function main() {
+var main = async () => {
     const canvas = document.getElementById("canvas");
     const context = canvas.getContext("webgl2", { alpha: false, antialias: true });
-    document.getElementById("app");
     const view = new GltfView(context);
     const resourceLoader = view.createResourceLoader();
     const state = view.createState();
     state.renderingParameters.useDirectionalLightsWithDisabledIBL = true;
 
-    const pathProvider = new gltfModelPathProvider('assets/models/Models/model-index.json');
+    const pathProvider = new GltfModelPathProvider('assets/models/Models/model-index.json');
     await pathProvider.initialize();
     const environmentPaths = fillEnvironmentWithPaths({
         "footprint_court": "Footprint Court",
@@ -68824,15 +68641,14 @@ async function main() {
             // Workaround for errors in ktx lib after loading an asset with ktx2 files for the second time:
             resourceLoader.initKtxLib();
 
-            return from(resourceLoader.loadGltf(model.mainFile, model.additionalFiles).then( (gltf) => {
+            return from(resourceLoader.loadGltf(model.mainFile, model.additionalFiles).then(gltf => {
                 state.gltf = gltf;
                 const defaultScene = state.gltf.scene;
                 state.sceneIndex = defaultScene === undefined ? 0 : defaultScene;
                 state.cameraIndex = undefined;
-                if (state.gltf.scenes.length != 0)
-                {
-                    if(state.sceneIndex > state.gltf.scenes.length - 1)
-                    {
+
+                if (state.gltf.scenes.length != 0) {
+                    if (state.sceneIndex > state.gltf.scenes.length - 1) {
                         state.sceneIndex = 0;
                     }
                     const scene = state.gltf.scenes[state.sceneIndex];
@@ -68842,10 +68658,8 @@ async function main() {
 
                     // Try to start as many animations as possible without generating conficts.
                     state.animationIndices = [];
-                    for (let i = 0; i < gltf.animations.length; i++)
-                    {
-                        if (!gltf.nonDisjointAnimations(state.animationIndices).includes(i))
-                        {
+                    for (let i = 0; i < gltf.animations.length; i++) {
+                        if (!gltf.nonDisjointAnimations(state.animationIndices).includes(i)) {
                             state.animationIndices.push(i);
                         }
                     }
@@ -68858,40 +68672,29 @@ async function main() {
                 uiModel.exitLoadingState();
 
                 return state;
-            })
-            );
+            }));
         }),
-        // transform gltf loaded observable to multicast observable to avoid multiple execution with multiple subscriptions
         multicast(gltfLoadedSubject)
     );
 
-    uiModel.disabledAnimations(uiModel.activeAnimations.pipe(map(animationIndices => {
-        // Disable all animations which are not disjoint to the current selection of animations.
-        return state.gltf.nonDisjointAnimations(animationIndices);
-    })));
+    // Disable all animations which are not disjoint to the current selection of animations.
+    uiModel.disabledAnimations(uiModel.activeAnimations.pipe(map(animationIndices => state.gltf.nonDisjointAnimations(animationIndices))));
 
-    const sceneChangedSubject = new Subject();
-    const sceneChangedObservable = uiModel.scene.pipe(map( newSceneIndex => {
-        state.sceneIndex = newSceneIndex;
-        state.cameraIndex = undefined;
-        const scene = state.gltf.scenes[state.sceneIndex];
-        if (scene !== undefined)
-        {
-            scene.applyTransformHierarchy(state.gltf);
-            state.userCamera.fitViewToScene(state.gltf, state.sceneIndex);
-        }
-    }),
-    multicast(sceneChangedSubject)
+    const sceneChangedObservable = uiModel.scene.pipe(
+        map(sceneIndex => {
+            state.sceneIndex = sceneIndex;
+            state.cameraIndex = undefined;
+            const scene = state.gltf.scenes[state.sceneIndex];
+            if (scene !== undefined)
+            {
+                scene.applyTransformHierarchy(state.gltf);
+                state.userCamera.fitViewToScene(state.gltf, state.sceneIndex);
+            }
+        }),
+        share()
     );
 
-    const statisticsUpdateObservableTemp = merge$1(
-        gltfLoadedMulticast,
-        sceneChangedObservable
-    );
-
-    const statisticsUpdateObservable = statisticsUpdateObservableTemp.pipe(
-        map( (_) => view.gatherStatistics(state) )
-    );
+    const statisticsUpdateObservable = merge$1(sceneChangedObservable, gltfLoadedMulticast).pipe(map(() => view.gatherStatistics(state)));
 
     const texturestatisticsUpdateObservableTemp = merge$1(
         gltfLoadedMulticast,
@@ -68938,19 +68741,16 @@ async function main() {
     };
 
     const downloadDataURL = (filename, dataURL) => {
-        var element = document.createElement('a');
+        const element = document.createElement('a');
         element.setAttribute('href', dataURL);
         element.setAttribute('download', filename);
-
         element.style.display = 'none';
         document.body.appendChild(element);
-
         element.click();
-
         document.body.removeChild(element);
     };
 
-    cameraExportChangedObservable.subscribe( cameraDesc => {
+    cameraExportChangedObservable.subscribe(cameraDesc => {
         const gltf = JSON.stringify(cameraDesc, undefined, 4);
         const dataURL = 'data:text/plain;charset=utf-8,' +  encodeURIComponent(gltf);
         downloadDataURL("camera.gltf", dataURL);
@@ -68966,97 +68766,61 @@ async function main() {
     let redraw = false;
     const listenForRedraw = stream => stream.subscribe(() => redraw = true);
     
-    uiModel.scene.pipe(filter$1(scene => scene === -1)).subscribe( () => {
-        state.sceneIndex = undefined;
-    });
-    uiModel.scene.pipe(filter$1(scene => scene !== -1)).subscribe( scene => {
-        state.sceneIndex = scene;
-    });
+    uiModel.scene.subscribe(scene => state.sceneIndex = scene !== -1 ? scene : undefined);
     listenForRedraw(uiModel.scene);
 
-    uiModel.camera.pipe(filter$1(camera => camera === -1)).subscribe( () => {
-        state.cameraIndex = undefined;
-    });
-    uiModel.camera.pipe(filter$1(camera => camera !== -1)).subscribe( camera => {
-        state.cameraIndex = camera;
-    });
+    uiModel.camera.subscribe(camera => state.cameraIndex = camera !== -1 ? camera : undefined);
     listenForRedraw(uiModel.camera);
 
-    uiModel.variant.subscribe( variant => {
-        state.variant = variant;
-    });
+    uiModel.variant.subscribe(variant => state.variant = variant);
     listenForRedraw(uiModel.variant);
 
-    uiModel.tonemap.subscribe( tonemap => {
-        state.renderingParameters.toneMap = tonemap;
-    });
+    uiModel.tonemap.subscribe(tonemap => state.renderingParameters.toneMap = tonemap);
     listenForRedraw(uiModel.tonemap);
 
-    uiModel.debugchannel.subscribe( debugchannel => {
-        state.renderingParameters.debugOutput = debugchannel;
-    });
+    uiModel.debugchannel.subscribe(debugchannel => state.renderingParameters.debugOutput = debugchannel);
     listenForRedraw(uiModel.debugchannel);
 
-    uiModel.skinningEnabled.subscribe( skinningEnabled => {
-        state.renderingParameters.skinning = skinningEnabled;
-    });
+    uiModel.skinningEnabled.subscribe(skinningEnabled => state.renderingParameters.skinning = skinningEnabled);
     listenForRedraw(uiModel.skinningEnabled);
 
-    uiModel.exposure.subscribe( exposure => {
-        state.renderingParameters.exposure = (1.0 / Math.pow(2.0, exposure));
-    });
+    uiModel.exposure.subscribe(exposure => state.renderingParameters.exposure = (1.0 / Math.pow(2.0, exposure)));
     listenForRedraw(uiModel.exposure);
 
-    uiModel.morphingEnabled.subscribe( morphingEnabled => {
-        state.renderingParameters.morphing = morphingEnabled;
-    });
+    uiModel.morphingEnabled.subscribe(morphingEnabled => state.renderingParameters.morphing = morphingEnabled);
     listenForRedraw(uiModel.morphingEnabled);
 
-    uiModel.clearcoatEnabled.subscribe( clearcoatEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_clearcoat = clearcoatEnabled;
-    });
-    uiModel.sheenEnabled.subscribe( sheenEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_sheen = sheenEnabled;
-    });
-    uiModel.transmissionEnabled.subscribe( transmissionEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_transmission = transmissionEnabled;
-    });
-    uiModel.volumeEnabled.subscribe( volumeEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_volume = volumeEnabled;
-    });
-    uiModel.iorEnabled.subscribe( iorEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_ior = iorEnabled;
-    });
-    uiModel.iridescenceEnabled.subscribe( iridescenceEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_iridescence = iridescenceEnabled;
-    });
-    uiModel.anisotropyEnabled.subscribe( anisotropyEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_anisotropy = anisotropyEnabled;
-    });
-    uiModel.specularEnabled.subscribe( specularEnabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_specular = specularEnabled;
-    });
-    uiModel.emissiveStrengthEnabled.subscribe( enabled => {
-        state.renderingParameters.enabledExtensions.KHR_materials_emissive_strength = enabled;
-    });
+    uiModel.clearcoatEnabled.subscribe(clearcoatEnabled => state.renderingParameters.enabledExtensions.KHR_materials_clearcoat = clearcoatEnabled);
     listenForRedraw(uiModel.clearcoatEnabled);
+
+    uiModel.sheenEnabled.subscribe(sheenEnabled => state.renderingParameters.enabledExtensions.KHR_materials_sheen = sheenEnabled);
     listenForRedraw(uiModel.sheenEnabled);
+
+    uiModel.transmissionEnabled.subscribe(transmissionEnabled => state.renderingParameters.enabledExtensions.KHR_materials_transmission = transmissionEnabled);
     listenForRedraw(uiModel.transmissionEnabled);
+
+    uiModel.volumeEnabled.subscribe(volumeEnabled => state.renderingParameters.enabledExtensions.KHR_materials_volume = volumeEnabled);
     listenForRedraw(uiModel.volumeEnabled);
+
+    uiModel.iorEnabled.subscribe(iorEnabled => state.renderingParameters.enabledExtensions.KHR_materials_ior = iorEnabled);
     listenForRedraw(uiModel.iorEnabled);
+
+    uiModel.iridescenceEnabled.subscribe(iridescenceEnabled => state.renderingParameters.enabledExtensions.KHR_materials_iridescence = iridescenceEnabled);
     listenForRedraw(uiModel.specularEnabled);
+
+    uiModel.anisotropyEnabled.subscribe(anisotropyEnabled => state.renderingParameters.enabledExtensions.KHR_materials_anisotropy = anisotropyEnabled);
     listenForRedraw(uiModel.iridescenceEnabled);
+
+    uiModel.specularEnabled.subscribe(specularEnabled => state.renderingParameters.enabledExtensions.KHR_materials_specular = specularEnabled);
     listenForRedraw(uiModel.anisotropyEnabled);
+
+    uiModel.emissiveStrengthEnabled.subscribe(enabled => state.renderingParameters.enabledExtensions.KHR_materials_emissive_strength = enabled);
     listenForRedraw(uiModel.emissiveStrengthEnabled);
 
-    uiModel.iblEnabled.subscribe( iblEnabled => {
-        state.renderingParameters.useIBL = iblEnabled;
-    });
+    uiModel.iblEnabled.subscribe(iblEnabled => state.renderingParameters.useIBL = iblEnabled);
     listenForRedraw(uiModel.iblEnabled);
 
-    uiModel.iblIntensity.subscribe( iblIntensity => {
-        state.renderingParameters.iblIntensity = Math.pow(10, iblIntensity);
-    });
+    uiModel.iblIntensity.subscribe(iblIntensity => state.renderingParameters.iblIntensity = Math.pow(10, iblIntensity));
     listenForRedraw(uiModel.iblIntensity);
 
     // GSV-KTX
@@ -69730,11 +69494,11 @@ async function main() {
             const isKTX = ImageMimeType.KTX2 === image.mimeType;
             if (!isWebP && !isKTX) return;
             gltfJSONNew.textures.forEach((texture) => {
-                if(texture.source != index) return;
-                texture.source = undefined;
+                if(texture.source !== index) return;
                 texture.extensions = (isWebP) 
                     ? { EXT_texture_webp:   { source: texture.source } }
                     : { KHR_texture_basisu: { source: texture.source } };
+                texture.source = undefined;
             });
         });
 
@@ -70192,16 +69956,15 @@ async function main() {
         state.renderingParameters.blurEnvironmentMap = blurEnvEnabled;
     });
     listenForRedraw(uiModel.renderEnvEnabled);
+    
+    uiModel.blurEnvEnabled.subscribe(blurEnvEnabled => state.renderingParameters.blurEnvironmentMap = blurEnvEnabled);
     listenForRedraw(uiModel.blurEnvEnabled);
 
-    uiModel.punctualLightsEnabled.subscribe( punctualLightsEnabled => {
-        state.renderingParameters.usePunctual = punctualLightsEnabled;
-    });
+    uiModel.punctualLightsEnabled.subscribe(punctualLightsEnabled => state.renderingParameters.usePunctual = punctualLightsEnabled);
     listenForRedraw(uiModel.punctualLightsEnabled);
 
-    uiModel.environmentRotation.subscribe( environmentRotation => {
-        switch (environmentRotation)
-        {
+    uiModel.environmentRotation.subscribe(environmentRotation => {
+        switch (environmentRotation) {
         case "+Z":
             state.renderingParameters.environmentRotation = 90.0;
             break;
@@ -70219,28 +69982,22 @@ async function main() {
     listenForRedraw(uiModel.environmentRotation);
 
 
-    uiModel.clearColor.subscribe( clearColor => {
-        state.renderingParameters.clearColor = clearColor;
-    });
+    uiModel.clearColor.subscribe(clearColor => state.renderingParameters.clearColor = clearColor);
     listenForRedraw(uiModel.clearColor);
 
-    uiModel.animationPlay.subscribe( animationPlay => {
-        if(animationPlay)
-        {
+    uiModel.animationPlay.subscribe(animationPlay => {
+        if(animationPlay) {
             state.animationTimer.unpause();
         }
-        else
-        {
+        else {
             state.animationTimer.pause();
         }
     });
 
-    uiModel.activeAnimations.subscribe( animations => {
-        state.animationIndices = animations;
-    });
+    uiModel.activeAnimations.subscribe(animations => state.animationIndices = animations);
     listenForRedraw(uiModel.activeAnimations);
 
-    uiModel.hdr.subscribe( hdrFile => {
+    uiModel.hdr.subscribe(hdrFile => {
         resourceLoader.loadEnvironment(hdrFile).then( (environment) => {
             state.environment = environment;
             //We neeed to wait until the environment is loaded to redraw
@@ -70258,8 +70015,7 @@ async function main() {
     compressChangedObservable.connect();
 
     uiModel.orbit.subscribe( orbit => {
-        if (state.cameraIndex === undefined)
-        {
+        if (state.cameraIndex === undefined) {
             state.userCamera.orbit(orbit.deltaPhi, orbit.deltaTheta);
         }
     });
@@ -70346,8 +70102,7 @@ async function main() {
 
     // configure the animation loop
     const past = {};
-    const update = () =>
-    {
+    const update = () => {
         const devicePixelRatio = window.devicePixelRatio || 1;
 
         // set the size of the drawingBuffer based on the size it's displayed.
@@ -70374,7 +70129,7 @@ async function main() {
 
     // After this start executing animation loop.
     window.requestAnimationFrame(update);
-}
+};
 
-export { main };
+export { main as default };
 //# sourceMappingURL=GltfSVApp.js.map
