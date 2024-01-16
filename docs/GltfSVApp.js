@@ -2854,7 +2854,8 @@ class gltfWebGl
                 gltfTex.compressedGLTexture = this.context.createTexture();
             }
         }
-
+        image.glTexture = gltfTex.glTexture;
+        
         this.context.activeTexture(GL.TEXTURE0 + texSlot);
         this.context.bindTexture(gltfTex.type, bindCompressed? gltfTex.compressedGLTexture : gltfTex.glTexture);
 
@@ -20122,7 +20123,7 @@ class gltfImage extends GltfObject
             console.log("GL Error");
 
         let raw_data = (this.mimeType !== ImageMimeType.KTX2) ?
-         await ImageUtils.loadImageData(this.image) :
+         await ImageUtils.loadImageDataGL(this.glTexture, this.image.width, this.image.height, gl, this.imageType === ImageType.COLOR) :
          await ImageUtils.loadImageDataGL(this.image, this.image.width, this.image.height, gl, this.imageType === ImageType.COLOR);
 
         raw_data = (height !== this.image.height || width !== this.image.width) 
@@ -69180,7 +69181,7 @@ var main = async () => {
                 compress_options.weightQuantizationBits = state.compressorParameters.compressionDracoQuantizationWeightQuantBits;
                 compress_options.jointQuantizationBits = state.compressorParameters.compressionDracoQuantizationJointQuantBits;
             }
-            else //if(type === GEOMETRY_COMPRESSION_TYPE.MESHOPT)
+            else if(type === GEOMETRY_COMPRESSION_TYPE.MESHOPT)
             {
                 compress_options = new GeometryMeshOptOptions();
                 compress_options.reorder = state.compressorParameters.compressionMeshOptReorder;
@@ -69219,6 +69220,18 @@ var main = async () => {
                 compress_options.tex1Filter = state.compressorParameters.tex1Filter;
                 compress_options.tex1FilterMode = state.compressorParameters.tex1FilterMode;
                 compress_options.tex1FilterBits = state.compressorParameters.tex1FilterBits;
+            } else {
+                compress_options = new GeometryQuantizationOptions();
+                compress_options.positionCompression = getComponentDataType('FLOAT');
+                compress_options.normalsCompression = getComponentDataType('FLOAT');
+                compress_options.texcoord0Compression = getComponentDataType('FLOAT');
+                compress_options.texcoord1Compression = getComponentDataType('FLOAT');
+                compress_options.tangentsCompression = getComponentDataType('FLOAT');
+                compress_options.positionCompressionNormalized = false;
+                compress_options.normalsCompressionNormalized = false;
+                compress_options.texcoord0CompressionNormalized = false;
+                compress_options.texcoord1CompressionNormalized = false;
+                compress_options.tangentsCompressionNormalized = false;
             }
             console.log('compress_options', compress_options);
 
@@ -69501,7 +69514,8 @@ var main = async () => {
                 const og_prim = og_mesh.primitives[prim_index];
                 const og_accessor = og_gltf.accessors[og_prim.indices];
                 const og_bufferView = og_gltf.bufferViews[og_accessor.bufferView];
-                if (prim.extensions && prim.extensions.KHR_draco_mesh_compression) {
+
+                if (prim.toBeUncompressed) ; else if (prim.extensions && prim.extensions.KHR_draco_mesh_compression) {
                     const draco = prim.extensions.KHR_draco_mesh_compression;
                     gltf.accessors[prim.indices];
                     const bufferView = gltf.bufferViews[draco.bufferView];
@@ -69546,13 +69560,17 @@ var main = async () => {
                     const out_accessor = gltfJSONNew.accessors[og_prim.indices];
                     const mem_buffer = mem_buffers[og_bufferView.buffer];
                     
+                    const componentSize = accessor.getComponentSize(accessor.componentType);
+                    const componentCount = accessor.getComponentCount(accessor.type);
+                    const byteOffset = accessor.byteOffset + bufferView.byteOffset;
+                    let stride = bufferView.byteStride !== 0 ? bufferView.byteStride : componentCount * componentSize;
+
                     out_prim.indices = og_prim.indices;
                     out_prim.material = og_prim.material;
-
                     const out_bufferView = {
                         buffer: og_bufferView.buffer,
                         byteOffset: mem_buffer.byteLength,
-                        byteLength: og_bufferView.byteLength,
+                        byteLength: accessor.count * stride,
                         target: og_bufferView.target
                     };
                     if (isMoptCompressed) {
@@ -69573,17 +69591,12 @@ var main = async () => {
                         };   
                     }
 
-                    if (bufferViewDict[accessor.bufferView] === undefined) {
-                        out_accessor.bufferView = bufferViews.length;
-                        out_accessor.byteOffset = undefined;
-                        bufferViewDict[accessor.bufferView] = bufferViews.length;
-                        bufferViews.push(out_bufferView);
-                        mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(bufferView.byteOffset, bufferView.byteOffset + bufferView.byteLength));
-                        mem_buffer.byteLength = mem_buffer.data.byteLength;
-                    } else {
-                        out_accessor.bufferView = bufferViewDict[accessor.bufferView];
-                    }
-
+                    out_accessor.bufferView = bufferViews.length;
+                    out_accessor.byteOffset = undefined;
+                    bufferViewDict[accessor.bufferView] = bufferViews.length;
+                    bufferViews.push(out_bufferView);
+                    mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(byteOffset, byteOffset + accessor.count * stride, bufferView.byteLength));
+                    mem_buffer.byteLength = mem_buffer.data.byteLength;
                     Object.entries(prim.attributes).forEach(([key, value]) => {
                         const attribute = prim.attributes[key];
                         const og_attribute = og_prim.attributes[key];
@@ -69596,10 +69609,15 @@ var main = async () => {
                         const buffer = (isMoptCompressed) ? gltf.buffers[bufferView.extensions.EXT_meshopt_compression.buffer] : gltf.buffers[bufferView.buffer];
                         const out_accessor = gltfJSONNew.accessors[og_attribute];
 
+                        const componentSize = accessor.getComponentSize(accessor.componentType);
+                        const componentCount = accessor.getComponentCount(accessor.type);
+                        const byteOffset = accessor.byteOffset + bufferView.byteOffset;
+                        let stride = bufferView.byteStride !== 0 ? bufferView.byteStride : componentCount * componentSize;
+
                         const out_bufferView = {
                             buffer: og_bufferView.buffer,
                             byteOffset: mem_buffer.byteLength,
-                            byteLength: og_bufferView.byteLength,
+                            byteLength: accessor.count * stride,
                             target: og_bufferView.target
                         };
                         if (isMoptCompressed) {
@@ -69627,17 +69645,12 @@ var main = async () => {
                             out_accessor.max = accessor.max;
                             out_accessor.min = accessor.min;
                         }
-                     
-                        if (bufferViewDict[accessor.bufferView] === undefined) {
-                            out_accessor.bufferView = bufferViews.length;
-                            out_accessor.byteOffset = undefined;
-                            bufferViewDict[accessor.bufferView] = bufferViews.length;
-                            bufferViews.push(out_bufferView);
-                            mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(bufferView.byteOffset, bufferView.byteOffset + bufferView.byteLength));
-                            mem_buffer.byteLength = mem_buffer.data.byteLength;
-                        } else {
-                            out_accessor.bufferView = bufferViewDict[accessor.bufferView];
-                        }
+                        out_accessor.bufferView = bufferViews.length;
+                        out_accessor.byteOffset = undefined;
+                        bufferViewDict[accessor.bufferView] = bufferViews.length;
+                        bufferViews.push(out_bufferView);
+                        mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(byteOffset, byteOffset + accessor.count * stride, bufferView.byteLength));
+                        mem_buffer.byteLength = mem_buffer.data.byteLength;
                     });
                 }
             });
@@ -69758,7 +69771,6 @@ var main = async () => {
         }
 
         console.log('gltfJSONNew', gltfJSONNew);
-
         return {gltfDesc: {uri: path.basename(gltf.path), data: gltfJSONNew}, images: uri_images, buffers: mem_buffers};
     }));
     gltfExportChangedObservable.subscribe( async ({gltfDesc, images, buffers}) => {
