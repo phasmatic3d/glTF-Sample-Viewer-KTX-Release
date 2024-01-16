@@ -29850,6 +29850,7 @@ class UIModel
                 });
 
                 this.app.geometryStatistics = data.geometryData;
+                this.app.geometryStatistics.length = data.meshes.length;
                 this.app.geometryCompressedSize = data.geometrySize;
                 
                 this.app.compressionStatistics["After"] = done ? (data.geometrySize.toFixed(2) + " + " + data.texturesSize.toFixed(2) + " = " + (data.geometrySize + data.texturesSize).toFixed(2) + " mb") : "";
