@@ -23755,7 +23755,6 @@ class gltfNode extends GltfObject
                         bboxMin: subtract(create$3(), bboxMin, scaled_compressed_bbox_min),
                         bboxMax: subtract(create$3(), bboxMax, scaled_compressed_bbox_max)
                     };       
-                    this.compressionError = "TBD%";
                 }
                 else
                 {                    
@@ -23772,8 +23771,7 @@ class gltfNode extends GltfObject
                     this.bboxDiffError = {
                         bboxMin: subtract(create$3(), bboxMin, compressed_bboxMin),
                         bboxMax: subtract(create$3(), bboxMax, compressed_bboxMax)
-                    };       
-                    this.compressionError = "TBD%";
+                    };
                 }                
             }
         }
@@ -26988,8 +26986,7 @@ class GltfView
                     diskSizeAfter: isIncluded ? state.gltf.meshes[element.mesh].diskSizeAfter.toFixed(2) + " mb" : "",  
                     gpuSizeAfter: isIncluded ? state.gltf.meshes[element.mesh].gpuSizeAfter.toFixed(2) + " mb" : "",  
                     bboxErrorMin: bboxErrorMin? `${bboxErrorMin[0].toFixed(3)} ${bboxErrorMin[1].toFixed(3)} ${bboxErrorMin[2].toFixed(3)}` : "",
-                    bboxErrorMax: bboxErrorMax? `${bboxErrorMax[0].toFixed(3)} ${bboxErrorMax[1].toFixed(3)} ${bboxErrorMax[2].toFixed(3)}` : "",
-                    compressionError: element.compressionError? element.compressionError : ""
+                    bboxErrorMax: bboxErrorMax? `${bboxErrorMax[0].toFixed(3)} ${bboxErrorMax[1].toFixed(3)} ${bboxErrorMax[2].toFixed(3)}` : ""
                 };
                 meshes.push(mesh);
             }
@@ -29850,7 +29847,6 @@ class UIModel
                     table_row.rows[6].cells[2].innerHTML = mesh.gpuSizeAfter;
                     table_row.rows[7].cells[2].innerHTML = mesh.bboxErrorMin;
                     table_row.rows[8].cells[2].innerHTML = mesh.bboxErrorMax;
-                    table_row.rows[9].cells[2].innerHTML = mesh.compressionError;
                 });
 
                 this.app.geometryStatistics = data.geometryData;
@@ -57967,15 +57963,6 @@ Vue$2.component("tree-view-node", {
                     cell2 = rows[rows.length-1].insertCell(1);
                     cell3 = rows[rows.length-1].insertCell(2);
                     cell1.innerHTML  = "BboxChangeMax";
-                    cell2.innerHTML = "";
-                    cell3.innerHTML = "";
-
-                    // Insert row
-                    rows.push(newTable.insertRow(-1));
-                    cell1 = rows[rows.length-1].insertCell(0);
-                    cell2 = rows[rows.length-1].insertCell(1);
-                    cell3 = rows[rows.length-1].insertCell(2);
-                    cell1.innerHTML  = "CompressionError";
                     cell2.innerHTML = "";
                     cell3.innerHTML = "";
 
