@@ -20396,6 +20396,10 @@ class gltfMaterial extends GltfObject
         this.iridescenceThicknessTexture = gltfTextureInfo.createCopy(originalMaterial.iridescenceThicknessTexture);
 
         this.extensions = {...originalMaterial.extensions};
+        if(this.extensions.KHR_materials_volume)
+        {
+            this.extensions.KHR_materials_volume = {...this.extensions.KHR_materials_volume};
+        }
         this.extras = {...originalMaterial.extras};
 
         // pbr next extension toggles
@@ -23349,7 +23353,7 @@ class gltfMesh extends GltfObject
                 if(material.hasVolume)
                 {
                     let thicknessFactor = material.extensions.KHR_materials_volume.thicknessFactor ?? 0.0;
-                    thicknessFactor = thicknessFactor * options.scale;
+                    thicknessFactor = thicknessFactor * (options.scale? options.scale : 1.0);
                     material.extensions.KHR_materials_volume.thicknessFactor = thicknessFactor;
                     material.properties.set("u_ThicknessFactor", thicknessFactor);
                 }
