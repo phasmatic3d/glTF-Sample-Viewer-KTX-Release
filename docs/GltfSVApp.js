@@ -69418,17 +69418,14 @@ var main = async () => {
         const gltfJSON = {...gltf.originalJSON}; // no need for deeper cloning
         const toExt = (type) => type == ImageMimeType.JPEG? ".jpg" : type == ImageMimeType.PNG? ".png" : type == ImageMimeType.WEBP? ".webp" : ".ktx2";
         const align4Bytes = (num) => 4 * Math.floor((num - 1) / 4) + 4;
-        
-        console.log('og_GLTF', gltf.og_gltf);
-        console.log('GLTF', gltf);
-
-
         const gltfJSONNew = {...gltf.originalJSON}; // no need for deeper cloning
 
         gltfJSONNew.images = [];
         gltfJSONNew.bufferViews = [];
         gltfJSONNew.buffers = [];
-        
+        gltfJSONNew.extensionsRequired = gltfJSON.extensionsRequired || [];
+        gltfJSONNew.extensionsUsed = gltfJSON.extensionsUsed || [];
+
         // delete unsused meshes, accessors, bufferviews and buffers
         const meshes = Array.from({length: gltfJSONNew.meshes.length}, () => null);
         // store the final nodes
@@ -69616,12 +69613,13 @@ var main = async () => {
                     bufferViews.push(out_bufferView);
                     // Handle the case where the original is DRACO encoded
                     let index_buffer = buffer.buffer;
-                    if (ArrayBuffer.isView(buffer.buffer)) {
+                    if (ArrayBuffer.isView(buffer.buffer) && !isMoptCompressed) {
                         if (accessor.componentType == GL.UNSIGNED_INT) index_buffer =  (new Uint32Array(buffer.buffer)).buffer;
                         if (accessor.componentType == GL.UNSIGNED_SHORT) index_buffer =  (new Uint16Array(buffer.buffer)).buffer;
                         if (accessor.componentType == GL.UNSIGNED_BYTE) index_buffer =  (new Uint8Array(buffer.buffer)).buffer;
                     }
-                    mem_buffer.data = concat(mem_buffer.data, index_buffer.slice(byteOffset, byteOffset + accessor.count * stride));
+                    const dataLength = (isMoptCompressed) ? bufferView.extensions.EXT_meshopt_compression.byteLength : accessor.count * stride;
+                    mem_buffer.data = concat(mem_buffer.data, index_buffer.slice(byteOffset, byteOffset + dataLength));
                     mem_buffer.byteLength = mem_buffer.data.byteLength;
                     Object.entries(prim.attributes).forEach(([key, value]) => {
                         const attribute = prim.attributes[key];
@@ -69675,7 +69673,8 @@ var main = async () => {
                         out_accessor.byteOffset = undefined;
                         bufferViewDict[accessor.bufferView] = bufferViews.length;
                         bufferViews.push(out_bufferView);
-                        mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(byteOffset, byteOffset + accessor.count * stride));
+                        const dataLength = (isMoptCompressed) ? bufferView.extensions.EXT_meshopt_compression.byteLength : accessor.count * stride;
+                        mem_buffer.data = concat(mem_buffer.data, buffer.buffer.slice(byteOffset, byteOffset + dataLength));
                         mem_buffer.byteLength = mem_buffer.data.byteLength;
                     });
                 }
@@ -69767,18 +69766,46 @@ var main = async () => {
         });
         gltfJSONNew.bufferViews = bufferViews;
 
+        const removeStringFromArray = (array, targetString) => {
+            const index = array.indexOf(targetString);
+            if (index !== -1) array.splice(index, 1);
+        };
+
+        removeStringFromArray(gltfJSONNew.extensionsRequired, "KHR_draco_mesh_compression");
+        removeStringFromArray(gltfJSONNew.extensionsRequired, "EXT_meshopt_compression");
+        removeStringFromArray(gltfJSONNew.extensionsRequired, "KHR_mesh_quantization");
+        removeStringFromArray(gltfJSONNew.extensionsUsed, "KHR_draco_mesh_compression");
+        removeStringFromArray(gltfJSONNew.extensionsUsed, "EXT_meshopt_compression");
+        removeStringFromArray(gltfJSONNew.extensionsUsed, "KHR_mesh_quantization");
+
+        gltfJSONNew.bufferViews.forEach((bufferView) => {
+            if (bufferView.extensions && bufferView.extensions.EXT_meshopt_compression) usesMeshopt = true;
+        });
+
+        gltfJSONNew.meshes.forEach((mesh) => {
+            mesh.primitives.forEach((prim) => {
+                if (prim.extensions && prim.extensions.KHR_draco_mesh_compression) usesDraco = true;
+                Object.entries(prim.attributes).forEach(([key, value]) => {
+                    const attribute = prim.attributes[key];
+                    const accessor = gltfJSONNew.accessors[attribute];
+                    if (isQuantizedCb(attribute, accessor)) usesQuantization = true;
+                });
+            });
+        });
+           
         const dracoGeometryExists = usesDraco;
         const moptGeometryExists = usesMeshopt;
         const quantizedGeometryExists = usesQuantization;
         const webpImagesExists = gltf.images.some(img => img.compressedMimeType === ImageMimeType.WEBP);
         const ktxImagesExists = gltf.images.some(img => img.compressedMimeType === ImageMimeType.KTX2);
-        gltfJSONNew.extensionsRequired = gltfJSON.extensionsRequired || [];
+        
         if(webpImagesExists)        gltfJSONNew.extensionsRequired.push("EXT_texture_webp");
         if(ktxImagesExists)         gltfJSONNew.extensionsRequired.push("KHR_texture_basisu");
         if(dracoGeometryExists)     gltfJSONNew.extensionsRequired.push("KHR_draco_mesh_compression");
         if(moptGeometryExists)      gltfJSONNew.extensionsRequired.push("EXT_meshopt_compression");
         if(quantizedGeometryExists) gltfJSONNew.extensionsRequired.push("KHR_mesh_quantization");
-        gltfJSONNew.extensionsUsed = gltfJSON.extensionsUsed || [];        if(webpImagesExists)        gltfJSONNew.extensionsUsed.push("EXT_texture_webp");
+
+        if(webpImagesExists)        gltfJSONNew.extensionsUsed.push("EXT_texture_webp");
         if(ktxImagesExists)         gltfJSONNew.extensionsUsed.push("KHR_texture_basisu");
         if(dracoGeometryExists)     gltfJSONNew.extensionsUsed.push("KHR_draco_mesh_compression");
         if(moptGeometryExists)      gltfJSONNew.extensionsUsed.push("EXT_meshopt_compression");
