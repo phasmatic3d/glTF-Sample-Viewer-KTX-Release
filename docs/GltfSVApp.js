@@ -21825,7 +21825,7 @@ class gltfPrimitive extends GltfObject
         const maxAttributes = webGlContext.getParameter(GL.MAX_VERTEX_ATTRIBS);
 
         // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#meshes
-
+        console.log('this', this);
         if (this.extensions !== undefined)
         {
             // Decode Draco compressed mesh:
@@ -22061,13 +22061,13 @@ class gltfPrimitive extends GltfObject
         const positionsAccessor = gltf.accessors[this.attributes.POSITION];
         //const positions = positionsAccessor.getNormalizedTypedView(gltf);
         const positions = positionsAccessor.getNormalizedDeinterlacedView(gltf);
-
+        console.log('this.indices', this.indices);
         if(this.indices !== undefined)
         {
             // Primitive has indices.
 
             const indicesAccessor = gltf.accessors[this.indices];
-
+            console.log('indicesAccessor', indicesAccessor);
             const indices = indicesAccessor.getTypedView(gltf);
 
             const acc = new Float32Array(3);
@@ -22630,18 +22630,30 @@ class gltfPrimitive extends GltfObject
     compressGeometryDRACO(options, gltf) {
         const encoderModule = gltf.dracoEncoder.module;
         const indices = (this.indices !== undefined) ? gltf.accessors[this.indices].getTypedView(gltf) : null;
-        const face_count = (this.indices !== undefined) ? indices.length / 3 : 0;
-        const accessor = (this.indices !== undefined) ? gltf.accessors[this.indices] : 0;
+        let attr_count = 0;
+        const accessor = (this.indices !== undefined) ? gltf.accessors[this.indices] : undefined;
         const mesh_builder = new encoderModule.MeshBuilder();
         const mesh = new encoderModule.Mesh();
         const encoder = new encoderModule.ExpertEncoder(mesh);
         const draco_attributes = {};
-
-        const indices32 = new Uint32Array(indices.length);
-        for(var i = 0; i < indices.length; i++) {
-            indices32[i] = indices[i];
+        for (const glAttribute of this.glAttributes) {
+            const accessor = gltf.accessors[glAttribute.accessor];
+            const data = accessor.getTypedView(gltf);
+            const compCount = accessor.getComponentCount(accessor.type);
+            const compSize = accessor.getComponentSize(accessor.componentType);
+            const byteStride = compSize * compCount;
+            attr_count = data.byteLength / byteStride;
         }
+        const face_count = (this.indices !== undefined) ? indices.length / 3 : attr_count / 3;
 
+        const indices32 = (indices) ? new Uint32Array(indices.length) : new Uint32Array(face_count * 3);
+        for(var i = 0; i < indices32.length; i++) {
+            indices32[i] = (indices) ? indices[i] : i;
+        }
+        console.log('this.indices', this.indices);
+        console.log('indices32', indices32);
+        console.log('face_count', face_count);
+        console.log('attr_count', attr_count);
         if (face_count > 0) mesh_builder.AddFacesToMesh(mesh, face_count, indices32);
 
         encoder.SetTrackEncodedProperties(true);
@@ -22710,16 +22722,20 @@ class gltfPrimitive extends GltfObject
         bufferView.buffer = gltf.buffers.length - 1;
         bufferView.byteOffset = 0;
         bufferView.byteLength = buffer.byteLength;
-        bufferView.name = "DRACO Compressed " + this.indices.toString();
+        bufferView.name = "DRACO Compressed Data";
         gltf.bufferViews.push(bufferView);
-
+        console.log('draco buffer', buffer);
+        console.log('draco bufferView', bufferView);
+        console.log('draco_face_count', draco_face_count);
+        console.log('draco_attr_count', draco_attr_count);
+        console.log('accessor', accessor);
         // Create a new accessor for the indices:
         const accessor_compressed = new gltfAccessor();
         accessor_compressed.bufferView = gltf.bufferViews.length - 1;
         accessor_compressed.byteOffset = 0;
         accessor_compressed.count = draco_face_count * 3;
         accessor_compressed.type = "SCALAR";
-        accessor_compressed.componentType = accessor.componentType;
+        accessor_compressed.componentType = (accessor) ? accessor.componentType : GL.UNSIGNED_INT;
         gltf.accessors.push(accessor_compressed);
         
         this.indices = gltf.accessors.length - 1;
@@ -24190,13 +24206,22 @@ class gltfAnimation extends GltfObject
             switch(channel.target.path)
             {
             case InterpolationPath.TRANSLATION:
-                node.applyTranslationAnimation(interpolator.interpolate(gltf, channel, sampler, totalTime, 3, this.maxTime));
+                const translate = interpolator.interpolate(gltf, channel, sampler, totalTime, 3, this.maxTime);
+                node.applyTranslationAnimation(translate);
+                if (!node.compressedNode) break;
+                node.compressedNode.applyTranslationAnimation(translate);
                 break;
             case InterpolationPath.ROTATION:
-                node.applyRotationAnimation(interpolator.interpolate(gltf, channel, sampler, totalTime, 4, this.maxTime));
+                const rotate = interpolator.interpolate(gltf, channel, sampler, totalTime, 4, this.maxTime);
+                node.applyRotationAnimation(rotate);
+                if (!node.compressedNode) break;
+                node.compressedNode.applyRotationAnimation(rotate);
                 break;
             case InterpolationPath.SCALE:
-                node.applyScaleAnimation(interpolator.interpolate(gltf, channel, sampler, totalTime, 3, this.maxTime));
+                const scale = interpolator.interpolate(gltf, channel, sampler, totalTime, 3, this.maxTime);
+                node.applyScaleAnimation(scale);
+                if (!node.compressedNode) break;
+                node.compressedNode.applyScaleAnimation(scale);
                 break;
             case InterpolationPath.WEIGHTS:
             {
@@ -69521,27 +69546,32 @@ var main = async () => {
                 texture.source = undefined;
             });
         });
-
         meshes.forEach((mesh, index) => {
             const og_mesh = (mesh.original_mesh === undefined) ? mesh : gltf.meshes[mesh.original_mesh];
             const out_mesh = gltfJSONNew.meshes[index];
             mesh.primitives.forEach((prim, prim_index) => {
                 const og_prim = og_mesh.primitives[prim_index];
-                const og_accessor = og_gltf.accessors[og_prim.indices];
-                const og_bufferView = og_gltf.bufferViews[og_accessor.bufferView];
-
+                const og_accessor = (og_prim.indices) ? og_gltf.accessors[og_prim.indices] : undefined;
+                const og_bufferView = (og_accessor) ? og_gltf.bufferViews[og_accessor.bufferView] : undefined;
                 if (prim.extensions && prim.extensions.KHR_draco_mesh_compression) {
                     const draco = prim.extensions.KHR_draco_mesh_compression;
-                    gltf.accessors[prim.indices];
+                    const accessor = gltf.accessors[prim.indices];
                     const bufferView = gltf.bufferViews[draco.bufferView];
                     const buffer = gltf.buffers[bufferView.buffer];
                     const out_prim = out_mesh.primitives[prim_index];
-                    const out_accessor = gltfJSONNew.accessors[og_prim.indices];
+                    // If the mesh contained index information, we reuse the previous accessor
+                    // If there was no index information we create an accessor at position 'prim.indices'
+                    if (!og_prim.indices && prim.indices >= gltfJSONNew.accessors.length) 
+                        gltfJSONNew.accessors[prim.indices] = { componentType: accessor.componentType, count: accessor.count, type: accessor.type };
+                    const out_accessor = gltfJSONNew.accessors[(og_prim.indices) ? og_prim.indices : prim.indices];
                     usesDraco = true;
-
-                    out_prim.indices = og_prim.indices;
+                    console.log('prim.indices', prim.indices);
+                    console.log('accessor', accessor);
+                    console.log('out_accessor', out_accessor);
+                    console.log('og_prim', og_prim);
+                    out_prim.indices = (og_prim.indices) ? og_prim.indices : prim.indices;
                     out_prim.material = og_prim.material;
-                    out_prim.mode = og_prim.mode;   
+                    out_prim.mode = (og_prim.mode) ? og_prim.mode : 4;   
                     out_prim.extensions = {
                         KHR_draco_mesh_compression: {
                             attributes: draco.attributes,
@@ -69561,8 +69591,9 @@ var main = async () => {
                         out_accessor.byteOffset = undefined;
                     });
 
-                    const mem_buffer = mem_buffers[og_bufferView.buffer];
-                    bufferViews.push({ buffer: og_bufferView.buffer, byteOffset: mem_buffer.byteLength, byteLength: buffer.buffer.byteLength });
+                    const mem_buffer_index = (og_bufferView) ? og_bufferView.buffer : 0;
+                    const mem_buffer = mem_buffers[mem_buffer_index];
+                    bufferViews.push({ buffer: mem_buffer_index, byteOffset: mem_buffer.byteLength, byteLength: buffer.buffer.byteLength });
                     
                     mem_buffer.data = concat(mem_buffer.data, buffer.buffer);
                     mem_buffer.byteLength = mem_buffer.data.byteLength;
